@@ -1,0 +1,59 @@
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database import get_db
+from app.core.security import hash_password, verify_password, create_access_token
+from app.api.deps import get_current_user
+from app.models.user import User, UserRole
+
+router = APIRouter()
+
+
+class RegisterBody(BaseModel):
+    email: str
+    name: str
+    password: str
+    role: str = "ba_pm"
+
+
+class LoginBody(BaseModel):
+    email: str
+    password: str
+
+
+def _user_out(user: User) -> dict:
+    return {"id": user.id, "email": user.email, "name": user.name, "role": user.role}
+
+
+@router.post("/register", status_code=201)
+async def register(body: RegisterBody, db: AsyncSession = Depends(get_db)):
+    existing = (await db.execute(select(User).where(User.email == body.email))).scalar_one_or_none()
+    if existing:
+        raise HTTPException(400, "Email already registered")
+    try:
+        role = UserRole(body.role)
+    except ValueError:
+        raise HTTPException(400, f"Invalid role '{body.role}'. Must be one of: {[r.value for r in UserRole]}")
+
+    user = User(email=body.email, name=body.name, role=role, hashed_pw=hash_password(body.password))
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    token = create_access_token({"sub": str(user.id), "role": user.role.value})
+    return {"access_token": token, "token_type": "bearer", "user": _user_out(user)}
+
+
+@router.post("/login")
+async def login(body: LoginBody, db: AsyncSession = Depends(get_db)):
+    user = (await db.execute(select(User).where(User.email == body.email))).scalar_one_or_none()
+    if not user or not verify_password(body.password, user.hashed_pw):
+        raise HTTPException(401, "Invalid credentials")
+    token = create_access_token({"sub": str(user.id), "role": user.role.value})
+    return {"access_token": token, "token_type": "bearer", "user": _user_out(user)}
+
+
+@router.get("/me")
+async def me(current_user: User = Depends(get_current_user)):
+    return _user_out(current_user)

@@ -1,0 +1,6 @@
+pytest==8.2.0
+pytest-asyncio==0.23.6
+pytest-httpx==0.30.0
+locust==2.28.0
+pip-audit==2.7.3
+bandit==1.7.8

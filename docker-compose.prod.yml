@@ -1,0 +1,61 @@
+version: "3.9"
+services:
+  api:
+    build: ./backend
+    env_file: .env.prod
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  worker:
+    build: ./backend
+    command: celery -A app.workers.tasks worker --loglevel=info --concurrency=4
+    env_file: .env.prod
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  flower:
+    build: ./backend
+    command: celery -A app.workers.tasks flower --port=5555
+    env_file: .env.prod
+    ports:
+      - "5555:5555"
+    depends_on:
+      - worker
+    restart: unless-stopped
+
+  postgres:
+    image: pgvector/pgvector:pg15
+    env_file: .env.prod
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    env_file: .env.prod
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  minio_data:

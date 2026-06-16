@@ -1,0 +1,141 @@
+import { useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { feasibility as feasApi } from '../services/api'
+import useAuthStore from '../store/authStore'
+
+const STATUS_CONFIG = {
+  green: { bg: 'bg-green-50 border-green-200', text: 'text-green-800', badge: 'bg-green-500', label: 'GREEN — Clear to proceed' },
+  amber: { bg: 'bg-amber-50 border-amber-200', text: 'text-amber-800', badge: 'bg-amber-400', label: 'AMBER — Proceed with caution' },
+  red:   { bg: 'bg-red-50 border-red-200',     text: 'text-red-800',   badge: 'bg-red-500',   label: 'RED — Hard blocker detected' },
+}
+
+function CheckCard({ title, data }) {
+  if (!data) return null
+  const good = data.status === 'clear' || data.status === 'green' || data.match === false
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-5">
+      <div className="flex items-center justify-between mb-3">
+        <span className="font-semibold text-gray-900 text-sm">{title}</span>
+        <span className={`w-3 h-3 rounded-full ${good ? 'bg-green-500' : 'bg-amber-400'}`} />
+      </div>
+      <p className="text-sm text-gray-600">{data.detail || JSON.stringify(data)}</p>
+      {data.required_compliances?.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {data.required_compliances.map(c => (
+            <span key={c} className="px-2 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-full">{c}</span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default function FeasibilityPanel({ projectId, project }) {
+  const qc   = useQueryClient()
+  const user = useAuthStore(s => s.user)
+
+  const [form, setForm] = useState({
+    client_name: project?.client_org || '',
+    country: '', industry: '', description: '',
+  })
+
+  const { data: report, isLoading } = useQuery({
+    queryKey: ['feasibility', projectId],
+    queryFn:  () => feasApi.get(projectId).then(r => r.data),
+    retry: false,
+  })
+
+  const runMutation = useMutation({
+    mutationFn: () => feasApi.run(projectId, form),
+    onSuccess:  () => qc.invalidateQueries(['feasibility', projectId]),
+  })
+
+  const overrideMutation = useMutation({
+    mutationFn: () => feasApi.override(projectId),
+    onSuccess:  () => qc.invalidateQueries(['project', projectId]),
+  })
+
+  const cfg = STATUS_CONFIG[report?.overall_status || 'amber']
+
+  return (
+    <div className="space-y-6">
+      {/* Run form */}
+      {!report && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <h3 className="font-semibold text-gray-900 mb-4">Run Feasibility Assessment</h3>
+          <div className="grid grid-cols-2 gap-4">
+            {['country', 'industry'].map(field => (
+              <div key={field}>
+                <label className="block text-sm font-medium text-gray-700 mb-1 capitalize">{field}</label>
+                <input value={form[field]} onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder={field === 'country' ? 'e.g. Germany' : 'e.g. FinTech'} />
+              </div>
+            ))}
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Project Description</label>
+              <textarea rows={3} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                placeholder="Brief description of what you're building…" />
+            </div>
+          </div>
+          <button onClick={() => runMutation.mutate()} disabled={runMutation.isPending || !form.country}
+            className="mt-4 bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+            {runMutation.isPending ? 'Running assessment…' : 'Run Assessment'}
+          </button>
+        </div>
+      )}
+
+      {/* Report */}
+      {report && (
+        <>
+          <div className={`rounded-xl border px-6 py-5 flex items-center justify-between ${cfg.bg}`}>
+            <div className="flex items-center gap-3">
+              <span className={`w-4 h-4 rounded-full ${cfg.badge}`} />
+              <span className={`font-bold text-lg ${cfg.text}`}>{cfg.label}</span>
+            </div>
+            <div className="flex gap-2">
+              {user?.role === 'admin' && report.overall_status === 'red' && (
+                <button onClick={() => overrideMutation.mutate()} disabled={overrideMutation.isPending}
+                  className="bg-white border border-red-300 text-red-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-50 disabled:opacity-50">
+                  Admin Override
+                </button>
+              )}
+              <button onClick={() => runMutation.mutate()} disabled={runMutation.isPending}
+                className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50">
+                Re-run
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <CheckCard title="Sanctions Screening (OFAC / UN / EU)" data={report.result?.sanctions} />
+            <CheckCard title="Geopolitical Risk"                    data={report.result?.geopolitical} />
+            <CheckCard title="Regulatory Mapping"                   data={report.result?.regulatory} />
+            <CheckCard title="Live Web Search"                      data={report.result?.web_search} />
+          </div>
+
+          {report.result?.hard_blockers?.length > 0 && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-5">
+              <p className="font-semibold text-red-800 mb-3">Hard Blockers</p>
+              {report.result.hard_blockers.map((b, i) => (
+                <div key={i} className="text-sm text-red-700 mb-1">{b.detail}</div>
+              ))}
+            </div>
+          )}
+
+          {report.result?.injected_nfrs?.length > 0 && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-5">
+              <p className="font-semibold text-blue-800 mb-3">Injected Compliance NFRs</p>
+              <ul className="space-y-1">
+                {report.result.injected_nfrs.map((n, i) => (
+                  <li key={i} className="text-sm text-blue-700">• {n.content}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
