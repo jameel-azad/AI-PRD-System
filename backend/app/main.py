@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.api import auth, projects, files, prd, feasibility
+from app.api import auth, projects, files, prd, feasibility, export, queue
 
 app = FastAPI(title="Xccelera PRD Portal API", version="3.0")
 
@@ -24,6 +24,8 @@ app.include_router(projects.router,    prefix="/api/v1/projects",    tags=["proj
 app.include_router(files.router,       prefix="/api/v1/files",       tags=["files"])
 app.include_router(prd.router,         prefix="/api/v1/prd",         tags=["prd"])
 app.include_router(feasibility.router, prefix="/api/v1/feasibility", tags=["feasibility"])
+app.include_router(export.router,      prefix="/api/v1/export",      tags=["export"])
+app.include_router(queue.router,       prefix="/api/v1/queue",       tags=["queue"])
 
 
 @app.get("/health")

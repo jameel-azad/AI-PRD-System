@@ -20,7 +20,7 @@ def chunk_text(text: str) -> list[str]:
 
 async def embed_text(text: str) -> list[float]:
     result = genai.embed_content(
-        model="models/embedding-001",
+        model=settings.GEMINI_EMBEDDING_MODEL,
         content=text,
         task_type="retrieval_document",
     )

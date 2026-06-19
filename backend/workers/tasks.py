@@ -1,47 +1,87 @@
+"""
+Legacy Celery worker entry-point (backend/workers/).
+
+The active processing path is backend/app/workers/tasks.py::run_ai_pipeline,
+which is what the API dispatches. These tasks are kept so that any existing
+queued messages are not lost, but each one delegates to process_source_file()
+from the current pipeline orchestrator rather than the old service-instance
+approach (transcription_service / extraction_service / prd_engine) which no
+longer exists.
+"""
+
+import asyncio
+import logging
+
 from workers.celery_app import app
-from workers import db as worker_db
+
+logger = logging.getLogger(__name__)
+
+
+def _run_pipeline(source_file_id: int) -> None:
+    from app.pipeline.orchestrator import process_source_file
+    asyncio.run(process_source_file(source_file_id))
 
 
 @app.task(bind=True, max_retries=3)
-def transcribe_file(self, source_file_id: str, storage_key: str):
+def transcribe_file(self, source_file_id: int, storage_key: str = ""):
+    """Delegated: runs the full pipeline for the given source file."""
     try:
-        from app.services.transcription import transcription_service
-
-        sf = worker_db.get_source_file(source_file_id)
-        # Text/chat files don't need Whisper — read bytes directly
-        if sf and sf.file_type in ("text", "chat", "document"):
-            result = transcription_service.run_for_text(storage_key)
-        else:
-            result = transcription_service.run(storage_key)
-
-        worker_db.update_source_file(source_file_id, transcript=result["full_text"], status="done")
-        extract_requirements.delay(source_file_id)
+        _run_pipeline(source_file_id)
     except Exception as exc:
+        logger.exception("transcribe_file failed for source_file_id=%s", source_file_id)
         raise self.retry(exc=exc, countdown=30)
 
 
-@app.task
-def extract_requirements(source_file_id: str):
-    from app.services.extraction import extraction_service
-
-    transcript = worker_db.get_transcript(source_file_id)
-    requirements = extraction_service.run(transcript, source_file_id)
-    worker_db.save_requirements(requirements, source_file_id)
-    check_and_generate_prd.delay(source_file_id)
-
-
-@app.task
-def check_and_generate_prd(source_file_id: str):
-    """Resolve project_id from source_file and trigger PRD generation."""
-    sf = worker_db.get_source_file(source_file_id)
-    if sf and sf.project_id:
-        generate_prd.delay(str(sf.project_id))
+@app.task(bind=True, max_retries=3)
+def extract_requirements(self, source_file_id: int):
+    """Delegated: runs the full pipeline (extraction already handled inside orchestrator)."""
+    try:
+        _run_pipeline(source_file_id)
+    except Exception as exc:
+        logger.exception("extract_requirements failed for source_file_id=%s", source_file_id)
+        raise self.retry(exc=exc, countdown=30)
 
 
-@app.task
-def generate_prd(project_id: str):
-    from app.services.prd_engine import prd_engine
+@app.task(bind=True, max_retries=3)
+def check_and_generate_prd(self, source_file_id: int):
+    """Delegated: runs the full pipeline for the resolved source file."""
+    try:
+        _run_pipeline(source_file_id)
+    except Exception as exc:
+        logger.exception("check_and_generate_prd failed for source_file_id=%s", source_file_id)
+        raise self.retry(exc=exc, countdown=30)
 
-    requirements = worker_db.get_all_requirements(project_id)
-    prd = prd_engine.generate(requirements)
-    worker_db.save_prd_version(project_id, prd)
+
+@app.task(bind=True, max_retries=3)
+def generate_prd(self, project_id: int):
+    """
+    Old task dispatched with a project_id rather than a source_file_id.
+    Finds the most-recent SourceFile for the project and reruns the pipeline.
+    """
+    try:
+        async def _run():
+            from sqlalchemy import select, desc
+            from app.core.database import AsyncSessionLocal
+            from app.models.source_file import SourceFile
+            from app.pipeline.orchestrator import process_source_file
+
+            async with AsyncSessionLocal() as session:
+                row = (
+                    await session.execute(
+                        select(SourceFile)
+                        .where(SourceFile.project_id == project_id)
+                        .order_by(desc(SourceFile.id))
+                        .limit(1)
+                    )
+                ).scalars().first()
+
+            if row is None:
+                logger.warning("generate_prd: no SourceFile found for project_id=%s", project_id)
+                return
+
+            await process_source_file(row.id)
+
+        asyncio.run(_run())
+    except Exception as exc:
+        logger.exception("generate_prd failed for project_id=%s", project_id)
+        raise self.retry(exc=exc, countdown=30)

@@ -18,13 +18,34 @@ class Settings(BaseSettings):
     MINIO_ACCESS_KEY: str = "minioadmin"
     MINIO_SECRET_KEY: str = "minioadmin"
     MINIO_BUCKET: str = "prd-files"
+    MINIO_USE_SSL: bool = False 
 
     JWT_SECRET_KEY: str = "change-me-in-production"
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 480
 
     GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-1.5-pro"
+    GEMINI_EMBEDDING_MODEL: str = "models/embedding-001"
+
     OPENAI_API_KEY: str = ""
+    OPENAI_WHISPER_MODEL: str = "whisper-1"
+
+    LANGGRAPH_LLM: str = "gemini"       # "gemini" | "claude"
+    ANTHROPIC_API_KEY: str = ""
+    ANTHROPIC_MODEL: str = "claude-sonnet-4-6"
+
+    # ── Email / SMTP ──────────────────────────────────────────────────
+    SMTP_ENABLED: bool = False
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USE_TLS: bool = True
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = "noreply@xccelera.ai"
+
+    # ── App URL (used in email links) ─────────────────────────────────
+    APP_BASE_URL: str = "http://localhost:5173"
 
     def validate_required_keys(self) -> None:
         """Called at startup — fails fast with a clear error if keys are missing."""

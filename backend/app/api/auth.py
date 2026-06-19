@@ -6,6 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import hash_password, verify_password, create_access_token
 from app.api.deps import get_current_user
+from app.models.approval import Approval
+from app.models.comment import Comment
+from app.models.prd_version import PRDVersion
+from app.models.project import Project
 from app.models.user import User, UserRole
 
 router = APIRouter()
@@ -57,3 +61,51 @@ async def login(body: LoginBody, db: AsyncSession = Depends(get_db)):
 @router.get("/me")
 async def me(current_user: User = Depends(get_current_user)):
     return _user_out(current_user)
+
+
+@router.get("/audit-log")
+async def audit_log(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    project_query = select(Project.id, Project.name, Project.created_at)
+    if current_user.role.value != "admin":
+        project_query = project_query.where(Project.owner_id == current_user.id)
+    projects = (await db.execute(project_query)).all()
+
+    if not projects:
+        return []
+
+    project_ids = [p.id for p in projects]
+    project_names = {p.id: p.name for p in projects}
+    events = []
+
+    for p in projects:
+        events.append({"ts": p.created_at, "actor": current_user.name, "action": "CREATE_PROJECT", "detail": p.name})
+
+    comments = (await db.execute(
+        select(Comment, User.name.label("uname"))
+        .join(User, Comment.user_id == User.id)
+        .where(Comment.project_id.in_(project_ids))
+    )).all()
+    for row in comments:
+        c, uname = row
+        events.append({"ts": c.created_at, "actor": uname, "action": "COMMENT", "detail": project_names.get(c.project_id, "")})
+
+    approvals = (await db.execute(
+        select(Approval, User.name.label("uname"))
+        .join(User, Approval.approver_id == User.id)
+        .where(Approval.project_id.in_(project_ids))
+    )).all()
+    for row in approvals:
+        a, uname = row
+        events.append({"ts": a.created_at, "actor": uname, "action": f"APPROVAL_{a.status.upper()}", "detail": project_names.get(a.project_id, "")})
+
+    prd_versions = (await db.execute(
+        select(PRDVersion).where(PRDVersion.project_id.in_(project_ids))
+    )).scalars().all()
+    for v in prd_versions:
+        events.append({"ts": v.created_at, "actor": "system", "action": f"PRD_v{v.version}_GENERATED", "detail": project_names.get(v.project_id, "")})
+
+    events.sort(key=lambda e: e["ts"], reverse=True)
+    return [{"ts": e["ts"].isoformat(), "actor": e["actor"], "action": e["action"], "detail": e["detail"]} for e in events[:20]]

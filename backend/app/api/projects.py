@@ -33,7 +33,10 @@ async def list_projects(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    rows = (await db.execute(select(Project).order_by(Project.created_at.desc()))).scalars().all()
+    query = select(Project).order_by(Project.created_at.desc())
+    if current_user.role.value != "admin":
+        query = query.where(Project.owner_id == current_user.id)
+    rows = (await db.execute(query)).scalars().all()
     return [
         {"id": p.id, "name": p.name, "client_org": p.client_org, "stage": p.stage, "created_at": p.created_at}
         for p in rows
@@ -62,6 +65,8 @@ async def get_project(
     project = await db.get(Project, project_id)
     if not project:
         raise HTTPException(404, "Project not found")
+    if current_user.role.value != "admin" and project.owner_id != current_user.id:
+        raise HTTPException(403, "Access denied")
 
     files = (await db.execute(select(SourceFile).where(SourceFile.project_id == project_id))).scalars().all()
     req_count = len((await db.execute(select(Requirement).where(Requirement.project_id == project_id))).scalars().all())
@@ -91,6 +96,8 @@ async def update_stage(
     project = await db.get(Project, project_id)
     if not project:
         raise HTTPException(404, "Project not found")
+    if current_user.role.value != "admin" and project.owner_id != current_user.id:
+        raise HTTPException(403, "Access denied")
     try:
         project.stage = ProjectStage(body.stage)
     except ValueError:

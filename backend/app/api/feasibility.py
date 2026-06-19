@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select, desc
@@ -31,7 +33,10 @@ async def run_feasibility(
     if not project:
         raise HTTPException(404, "Project not found")
 
-    result = await run_feasibility_check(body.client_name, body.country, body.industry, body.description)
+    result = await run_feasibility_check(
+        body.client_name, body.country, body.industry, body.description,
+        assessment_date=date.today().isoformat(),
+    )
 
     report = FeasibilityReport(
         project_id=project_id,

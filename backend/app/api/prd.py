@@ -11,6 +11,7 @@ from app.models.approval import Approval
 from app.models.project import Project, ProjectStage
 from app.models.prd_version import PRDVersion
 from app.models.user import User
+from app.services import email as email_service
 
 router = APIRouter()
 
@@ -76,6 +77,14 @@ async def approve_prd(
     project.stage = ProjectStage.approved
     await db.commit()
     await db.refresh(approval)
+
+    # Notify the project owner — fire-and-forget (never raises)
+    owner = await db.get(User, project.owner_id)
+    if owner and owner.id != current_user.id:
+        await email_service.send_approved(
+            project.name, owner.email, owner.name, current_user.name, project_id
+        )
+
     return {"id": approval.id, "status": approval.status, "created_at": approval.created_at}
 
 

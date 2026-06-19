@@ -41,7 +41,7 @@ async def upload_file(
         raise HTTPException(413, "File exceeds size limit")
 
     storage_key = f"projects/{project_id}/{file.filename}"
-    await storage_service.upload(storage_key, content, file.content_type or "application/octet-stream")
+    await storage_service.upload_bytes(storage_key, content, file.content_type or "application/octet-stream")
 
     source_file = SourceFile(
         project_id=project_id,
