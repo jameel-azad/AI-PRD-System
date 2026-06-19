@@ -1,6 +1,8 @@
+import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import useAuthStore from './store/authStore'
+import useProjectStore from './store/projectStore'
 import LoginPage from './pages/LoginPage'
 import AppShell from './components/AppShell'
 import Dashboard from './pages/Dashboard'
@@ -18,12 +20,25 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
 })
 
+function tokenIsValid(token) {
+  if (!token) return false
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]))
+    return typeof payload.exp === 'number' && payload.exp * 1000 > Date.now()
+  } catch {
+    return false
+  }
+}
+
 function PrivateRoute({ children }) {
   const token = useAuthStore(s => s.token)
-  return token ? children : <Navigate to="/login" replace />
+  return tokenIsValid(token) ? children : <Navigate to="/login" replace />
 }
 
 function AuthedApp() {
+  const initFromApi = useProjectStore(s => s.initFromApi)
+  useEffect(() => { initFromApi() }, [initFromApi])
+
   return (
     <AppShell>
       <Routes>

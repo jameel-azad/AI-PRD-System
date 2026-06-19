@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import useAppStore from '../store/appStore'
 import useProjectStore from '../store/projectStore'
 import { COUNTRIES, INDUSTRIES, LANGS } from '../data/mockData'
+import { projects as projectsApi, files as filesApi } from '../services/api'
 
 export default function ModalHost() {
   const { modal, closeModal, showToast } = useAppStore()
@@ -49,25 +50,31 @@ function NewProjectModal({ closeModal, showToast, addProject }) {
   const lang2Ref = useRef()
   const deadlineRef = useRef()
 
-  function create() {
+  async function create() {
     const name = (nameRef.current?.value || '').trim()
     const client = (clientRef.current?.value || '').trim()
     if (!name || !client) { showToast('Project name and client are required'); return }
-    const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 18) + '-' + Math.floor(Math.random() * 900 + 100)
     const l1 = lang1Ref.current?.value || 'English'
     const l2 = lang2Ref.current?.value || ''
-    addProject({
-      id, name, client, country: countryRef.current?.value || '', industry: industryRef.current?.value || '',
-      feas: 'green', completeness: 0, status: 'intake', statusLabel: 'Intake · awaiting first inputs',
-      langs: l2 ? `${l1.slice(0,2).toUpperCase()} + ${l2.slice(0,2).toUpperCase()}` : l1.slice(0,2).toUpperCase(),
-      deadline: deadlineRef.current?.value || '—', updated: 'Just now', deploy,
-      approver: approverRef.current?.value || '—', stage: 0, team: ['priya'], sources: [], tag: 'New project',
-      sections: new Array(14).fill(0), inputs: [], flowState: [0,0,0,0,0,0,0,0],
-      clars: [], comments: [], feasReport: null, reqs: [], injected: [], feasResolved: {},
-      activity: [{ ico: '✨', c: 'accent-soft', cl: 'var(--accent)', txt: `<b>Priya K.</b> created the project`, time: 'Just now' }],
-    })
-    closeModal()
-    showToast(`Project "${name}" created`)
+    const langs = l2 ? `${l1.slice(0,2).toUpperCase()} + ${l2.slice(0,2).toUpperCase()}` : l1.slice(0,2).toUpperCase()
+    try {
+      const { data } = await projectsApi.create({ name, client_org: client })
+      addProject({
+        ...data,
+        client, client_org: client,
+        country: countryRef.current?.value || '', industry: industryRef.current?.value || '',
+        feas: 'green', completeness: 0, status: data.stage || 'intake', statusLabel: 'Intake · awaiting first inputs',
+        langs, deadline: deadlineRef.current?.value || '—', updated: 'Just now', deploy,
+        approver: approverRef.current?.value || '—', stage: 0, team: [], sources: [], tag: 'New project',
+        sections: new Array(14).fill(0), inputs: [], flowState: [0,0,0,0,0,0,0,0],
+        clars: [], comments: [], feasReport: null, reqs: [], injected: [], feasResolved: {},
+        activity: [{ ico: '✨', c: 'accent-soft', cl: 'var(--accent)', txt: `<b>You</b> created the project`, time: 'Just now' }],
+      })
+      closeModal()
+      showToast(`Project "${name}" created`)
+    } catch (err) {
+      showToast(err.response?.data?.detail || 'Failed to create project')
+    }
   }
 
   return (
@@ -205,29 +212,52 @@ function UploadModal({ closeModal, showToast, projects, param }) {
   const fileRef = useRef()
   const { updateProject, addProjectActivity } = useProjectStore()
 
-  function doUpload() {
+  async function doUpload() {
     const pid = projRef.current?.value
-    const p = projects.find(x => x.id === pid)
+    const p = projects.find(x => String(x.id) === String(pid))
     if (!p) return
-    let nm, sz, meta
+
     if (kind === 'text') {
       if (!noteText.trim()) { showToast('Type some notes first'); return }
-      nm = 'pasted_notes_' + (Date.now() % 10000) + '.txt'; sz = (noteText.length / 1024).toFixed(1) + ' KB'; meta = 'queued for extraction'
-    } else if (kind === 'record') {
-      nm = 'live_recording_' + (Date.now() % 10000) + '.webm'; sz = '—'; meta = 'recording queued'
-    } else {
-      const f = fileRef.current?.files?.[0]
-      if (!f) { showToast('Choose a file to upload'); return }
-      nm = f.name; sz = (f.size / 1048576).toFixed(1) + ' MB'; meta = 'uploading…'
+      const nm = 'pasted_notes_' + (Date.now() % 10000) + '.txt'
+      const sz = (noteText.length / 1024).toFixed(1) + ' KB'
+      updateProject(pid, proj => {
+        const newFlowState = proj.flowState.every(s => s === 0) ? [2, ...proj.flowState.slice(1)] : proj.flowState
+        return { ...proj, inputs: [...(proj.inputs || []), { name: nm, kind: 'text', size: sz, stat: 'proc', prog: 0, meta: 'queued for extraction' }], stage: Math.max(proj.stage, 1), flowState: newFlowState }
+      })
+      addProjectActivity(pid, { ico: '📥', c: 'violet-soft', cl: 'var(--violet)', txt: `<b>You</b> added ${nm}`, time: 'Just now' })
+      closeModal()
+      showToast('Input added — processing started')
+      return
     }
-    updateProject(pid, proj => {
-      const newInputs = [...proj.inputs, { name: nm, kind: kind === 'record' ? 'video' : kind, size: sz, stat: 'proc', prog: 0, meta }]
-      const newFlowState = proj.flowState.every(s => s === 0) ? [2, ...proj.flowState.slice(1)] : proj.flowState
-      return { ...proj, inputs: newInputs, stage: Math.max(proj.stage, 1), flowState: newFlowState }
-    })
-    addProjectActivity(pid, { ico: '📥', c: 'violet-soft', cl: 'var(--violet)', txt: `<b>You</b> added ${nm}`, time: 'Just now' })
-    closeModal()
-    showToast('Input added — processing started')
+
+    if (kind === 'record') {
+      const nm = 'live_recording_' + (Date.now() % 10000) + '.webm'
+      updateProject(pid, proj => {
+        const newFlowState = proj.flowState.every(s => s === 0) ? [2, ...proj.flowState.slice(1)] : proj.flowState
+        return { ...proj, inputs: [...(proj.inputs || []), { name: nm, kind: 'video', size: '—', stat: 'proc', prog: 0, meta: 'recording queued' }], stage: Math.max(proj.stage, 1), flowState: newFlowState }
+      })
+      closeModal()
+      showToast('Recording queued')
+      return
+    }
+
+    const f = fileRef.current?.files?.[0]
+    if (!f) { showToast('Choose a file to upload'); return }
+    const nm = f.name
+    const sz = (f.size / 1048576).toFixed(1) + ' MB'
+    try {
+      await filesApi.upload(pid, f)
+      updateProject(pid, proj => {
+        const newFlowState = proj.flowState.every(s => s === 0) ? [2, ...proj.flowState.slice(1)] : proj.flowState
+        return { ...proj, inputs: [...(proj.inputs || []), { name: nm, kind, size: sz, stat: 'proc', prog: 0, meta: 'processing…' }], stage: Math.max(proj.stage, 1), flowState: newFlowState }
+      })
+      addProjectActivity(pid, { ico: '📥', c: 'violet-soft', cl: 'var(--violet)', txt: `<b>You</b> added ${nm}`, time: 'Just now' })
+      closeModal()
+      showToast('Input added — processing started')
+    } catch (err) {
+      showToast(err.response?.data?.detail || 'Upload failed')
+    }
   }
 
   return (

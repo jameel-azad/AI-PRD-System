@@ -21,6 +21,7 @@ export const auth = {
   register: data => api.post('/auth/register', data),
   login:    data => api.post('/auth/login', data),
   me:       ()   => api.get('/auth/me'),
+  auditLog: ()   => api.get('/auth/audit-log'),
 }
 
 export const projects = {
@@ -50,6 +51,17 @@ export const feasibility = {
   run:      (projectId, data) => api.post(`/feasibility/${projectId}/run`, data),
   get:       projectId        => api.get(`/feasibility/${projectId}`),
   override:  projectId        => api.post(`/feasibility/${projectId}/override`),
+}
+
+export const exportPrd = {
+  download: (projectId, format = 'pdf') =>
+    api.get(`/export/${projectId}?format=${format}`, { responseType: 'blob' }),
+}
+
+export const queue = {
+  stats:      ()         => api.get('/queue/stats'),
+  taskStatus: taskId     => api.get(`/queue/tasks/${taskId}`),
+  cancelTask: taskId     => api.delete(`/queue/tasks/${taskId}`),
 }
 
 export default api

@@ -3,10 +3,12 @@ import useAuthStore from '../store/authStore'
 import useAppStore from '../store/appStore'
 
 export default function TeamView() {
+  const user = useAuthStore(s => s.user)
   const viewRole = useAuthStore(s => s.viewRole)
   const { users, roles, changeUserRole, roleById } = useProjectStore()
   const { openModal, showToast } = useAppStore()
-  const canManage = viewRole === 'admin'
+  // Only the actual admin role can manage team members — viewRole can't be spoofed here
+  const canManage = user?.role === 'admin' || viewRole === 'admin'
 
   return (
     <>

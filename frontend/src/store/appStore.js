@@ -26,8 +26,9 @@ const useAppStore = create((set, get) => ({
   openModal(type, param) { set({ modal: { type, param } }) },
   closeModal() { set({ modal: null }) },
 
-  // Notifications
-  notifications: [
+  // Notifications — start empty for real users; demo data loaded only in offline/fallback mode
+  notifications: [],
+  _demoNotifications: [
     {id:1, type:'comment',  icon:'💬', text:'<b>Lena Weber</b> commented on <b>§6 Non-Functional</b> in Patient Intake Portal', proj:'medaxis', time:'9 min ago', read:false},
     {id:2, type:'gap',      icon:'🕳', text:'Gap analysis finished for <b>HR Onboarding Suite</b> — 4 follow-up questions generated', proj:'hr', time:'Yesterday 18:20', read:false},
     {id:3, type:'sanction', icon:'⛔', text:'Feasibility agent flagged a <b>hard blocker</b> (OFAC SDN) on Fleet Telemetry Analytics', proj:'volkov', time:'Jun 10 17:31', read:false},
@@ -35,6 +36,8 @@ const useAppStore = create((set, get) => ({
     {id:5, type:'deadline', icon:'⏰', text:'Approval deadline for <b>Patient Intake Portal</b> is in 4 days (Jun 16)', proj:'medaxis', time:'Jun 9 09:00', read:true},
     {id:6, type:'assign',   icon:'📌', text:'<b>Arjun M.</b> assigned you a clarification on insurance-registry integrations', proj:'medaxis', time:'Jun 8 16:42', read:true},
   ],
+  loadDemoNotifications() { set(s => ({ notifications: s._demoNotifications })) },
+  clearNotifications() { set({ notifications: [] }) },
   pushNotif(type, icon, text, proj) {
     const n = { id: Date.now(), type, icon, text, proj, time: 'Just now', read: false }
     set(s => ({ notifications: [n, ...s.notifications] }))

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import useAuthStore from '../store/authStore'
 import useAppStore from '../store/appStore'
+import { auth } from '../services/api'
 
 const DEMO_ROLES = [
   { value: 'bapm',   label: 'BA / PM',          sub: 'Internal'   },
@@ -12,7 +13,6 @@ const DEMO_ROLES = [
 export default function LoginPage() {
   const navigate = useNavigate()
   const login = useAuthStore(s => s.login)
-  const setViewRole = useAuthStore(s => s.setViewRole)
   const { showToast } = useAppStore()
 
   const [screen, setScreen] = useState('signin')  // signin | signup | forgot | otp
@@ -27,6 +27,7 @@ export default function LoginPage() {
   const [siEmail, setSiEmail] = useState('')
   const [siPwd, setSiPwd] = useState('')
   const [siRemember, setSiRemember] = useState(false)
+  const [siLoading, setSiLoading] = useState(false)
 
   // Sign-up form state
   const [suName, setSuName] = useState('')
@@ -42,16 +43,24 @@ export default function LoginPage() {
   // OTP reset new password
   const [otpPwd, setOtpPwd] = useState('')
 
-  function doLogin() {
-    setViewRole(loginRole)
-    login({ access_token: 'demo-token', user: { id: loginRole, role: loginRole, name: loginRole === 'client' ? 'Lena Weber' : loginRole === 'admin' ? 'Sofia R.' : 'Priya K.' } })
-    navigate('/')
-    showToast('Signed in · access logged to audit trail')
-  }
+  const [suLoading, setSuLoading] = useState(false)
 
-  function handleSignIn(e) {
+  async function handleSignIn(e) {
     e.preventDefault()
-    doLogin()
+    setError('')
+    if (!siEmail.trim()) { setError('Email is required'); return }
+    if (!siPwd) { setError('Password is required'); return }
+    setSiLoading(true)
+    try {
+      const { data } = await auth.login({ email: siEmail.trim(), password: siPwd })
+      login(data)
+      navigate('/')
+      showToast('Signed in · access logged to audit trail')
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Invalid email or password.')
+    } finally {
+      setSiLoading(false)
+    }
   }
 
   function handleSignUp(e) {
@@ -78,7 +87,7 @@ export default function LoginPage() {
     showToast(`Verification code sent to ${email}`)
   }
 
-  function handleOtp(e) {
+  async function handleOtp(e) {
     e.preventDefault()
     const code = otp.join('')
     if (code.length < 6) { setError('Enter all 6 digits'); return }
@@ -88,8 +97,18 @@ export default function LoginPage() {
       setScreen('signin')
       showToast('Password reset — you can now sign in')
     } else {
-      setScreen('signin')
-      showToast('Email verified — account created. Please sign in.')
+      setSuLoading(true)
+      try {
+        const roleMap = { bapm: 'ba_pm', admin: 'admin', client: 'client' }
+        await auth.register({ name: suName, email: suEmail, password: suPwd, role: roleMap[suRole] || 'ba_pm' })
+        setScreen('signin')
+        showToast('Account created — please sign in.')
+      } catch (err) {
+        setError(err.response?.data?.detail || 'Registration failed. Please try again.')
+        setScreen('signup')
+      } finally {
+        setSuLoading(false)
+      }
     }
   }
 
@@ -147,7 +166,7 @@ export default function LoginPage() {
               </div>
             </div>
 
-            <button type="button" className="btn btn-ghost sso-btn" onClick={doLogin}>
+            <button type="button" className="btn btn-ghost sso-btn" onClick={() => setError('SSO sign-in is not configured for this workspace.')}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2c3 3.5 3 16.5 0 20-3-3.5-3-16.5 0-20z"/></svg>
               Continue with SSO
             </button>
@@ -165,7 +184,7 @@ export default function LoginPage() {
             </div>
 
             {error && <p style={{fontSize:'12.5px',color:'var(--red)',marginBottom:'12px'}}>{error}</p>}
-            <button type="submit" className="btn btn-primary" style={{width:'100%',justifyContent:'center',padding:'12px'}}>Sign in</button>
+            <button type="submit" className="btn btn-primary" style={{width:'100%',justifyContent:'center',padding:'12px'}} disabled={siLoading}>{siLoading ? 'Signing in…' : 'Sign in'}</button>
             <p className="auth-switch">Don't have an account? <a href="#" onClick={e => { e.preventDefault(); setScreen('signup'); setError('') }}>Sign up</a></p>
           </form>
         )}

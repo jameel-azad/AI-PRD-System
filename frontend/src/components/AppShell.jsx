@@ -4,10 +4,16 @@ import useAuthStore from '../store/authStore'
 import useAppStore from '../store/appStore'
 import useProjectStore from '../store/projectStore'
 
-const ROLE_MAP = {
-  admin:  { label: 'Admin',           name: 'Sofia R.',   initials: 'SR', color: 'c-violet' },
-  bapm:   { label: 'BA / PM · Internal', name: 'Priya K.', initials: 'PK', color: 'c-teal'  },
-  client: { label: 'Client Reviewer · MedAxis', name: 'Lena Weber', initials: 'LW', color: 'c-green' },
+const ROLE_LABELS = {
+  admin:  'Admin',
+  bapm:   'BA / PM · Internal',
+  client: 'Client Reviewer',
+}
+const ROLE_COLORS = { admin: 'c-violet', bapm: 'c-teal', client: 'c-green' }
+
+function getInitials(name) {
+  if (!name) return '?'
+  return name.trim().split(/\s+/).map(w => w[0]?.toUpperCase()).filter(Boolean).slice(0, 2).join('')
 }
 
 const NAV_BAPM = [
@@ -22,12 +28,15 @@ const NAV_BAPM = [
   { path: '/settings',        label: 'Settings',         icon: 'settings'  },
 ]
 
-const NAV_CLIENT = [
-  { grp: 'Your project' },
-  { path: '/projects/medaxis/prd',         label: 'Requirements (PRD)', icon: 'files'    },
-  { path: '/projects/medaxis/discussion',  label: 'Discussion',         icon: 'chat'     },
-  { path: '/projects/medaxis/feasibility', label: 'Feasibility report', icon: 'pulse'    },
-]
+function buildClientNav(projects) {
+  const pid = projects[0]?.id ?? 'medaxis'
+  return [
+    { grp: 'Your project' },
+    { path: `/projects/${pid}/prd`,         label: 'Requirements (PRD)', icon: 'files'  },
+    { path: `/projects/${pid}/discussion`,  label: 'Discussion',         icon: 'chat'   },
+    { path: `/projects/${pid}/feasibility`, label: 'Feasibility report', icon: 'pulse'  },
+  ]
+}
 
 function NavIcon({ name }) {
   const icons = {
@@ -88,14 +97,19 @@ function RoleMenu({ onClose }) {
   const setViewRole = useAuthStore(s => s.setViewRole)
   const { showToast } = useAppStore()
   const navigate = useNavigate()
+  const projects = useProjectStore(s => s.projects)
 
   function setRole(r) {
     setViewRole(r)
     onClose()
     const lbl = r === 'admin' ? 'Admin' : r === 'client' ? 'Client Reviewer' : 'BA / PM'
     showToast(`Now viewing as ${lbl}`, r === 'client' ? 'client portal · limited to their project' : 'role-based access applied')
-    if (r === 'client') navigate('/projects/medaxis/prd')
-    else navigate('/')
+    if (r === 'client') {
+      const pid = projects[0]?.id ?? 'medaxis'
+      navigate(`/projects/${pid}/prd`)
+    } else {
+      navigate('/')
+    }
   }
 
   const items = [
@@ -122,8 +136,9 @@ export default function AppShell({ children }) {
   const location = useLocation()
   const logout = useAuthStore(s => s.logout)
   const viewRole = useAuthStore(s => s.viewRole)
+  const user = useAuthStore(s => s.user)
   const { openModal, notifications } = useAppStore()
-  const { openClars } = useProjectStore()
+  const { openClars, projects } = useProjectStore()
 
   const [showNotif, setShowNotif] = useState(false)
   const [showRoleMenu, setShowRoleMenu] = useState(false)
@@ -132,9 +147,13 @@ export default function AppShell({ children }) {
   const roleRef = useRef()
 
   const isClient = viewRole === 'client'
-  const roleInfo = ROLE_MAP[viewRole] || ROLE_MAP.bapm
   const unread = notifications.filter(n => !n.read).length
   const openClarCount = openClars().length
+
+  const userInitials = getInitials(user?.name)
+  const userColor = ROLE_COLORS[viewRole] || 'c-teal'
+  const userRoleLabel = ROLE_LABELS[viewRole] || 'BA / PM · Internal'
+  const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
 
   useEffect(() => {
     const handler = e => {
@@ -156,7 +175,7 @@ export default function AppShell({ children }) {
     navigate('/login')
   }
 
-  const navItems = isClient ? NAV_CLIENT : NAV_BAPM
+  const navItems = isClient ? buildClientNav(projects) : NAV_BAPM
   const currentPath = location.pathname
 
   function isActive(path) {
@@ -183,10 +202,10 @@ export default function AppShell({ children }) {
           })}
         </nav>
         <div className="side-user">
-          <span className={`avatar ${roleInfo.color}`}>{roleInfo.initials}</span>
+          <span className={`avatar ${userColor}`}>{userInitials}</span>
           <div>
-            <div className="who">{roleInfo.name}</div>
-            <div className="role-txt">{roleInfo.label}</div>
+            <div className="who">{user?.name || 'Unknown'}</div>
+            <div className="role-txt">{userRoleLabel}</div>
           </div>
           <button className="so" title="Sign out" onClick={doLogout}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -204,7 +223,7 @@ export default function AppShell({ children }) {
           <div className="topbar">
             <div>
               <h2 id="viewTitle">Dashboard</h2>
-              <div className="date">Friday, June 12 2026 · Internal workspace</div>
+              <div className="date">{today} · Internal workspace</div>
             </div>
 
             {!isClient && (
@@ -226,14 +245,25 @@ export default function AppShell({ children }) {
               {showNotif && <NotifPanel onClose={() => setShowNotif(false)} />}
             </div>
 
-            {/* Role switcher */}
+            {/* Role indicator — only admins can switch perspective */}
             <div className="roleswitch" ref={roleRef}>
-              <button onClick={() => setShowRoleMenu(v => !v)}>
-                <span className="vlabel">Viewing as</span>
-                <span>{viewRole === 'admin' ? 'Admin' : viewRole === 'client' ? 'Client Reviewer' : 'BA / PM'}</span>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="m6 9 6 6 6-6"/></svg>
-              </button>
-              {showRoleMenu && <RoleMenu onClose={() => setShowRoleMenu(false)} />}
+              {user?.role === 'admin' ? (
+                <>
+                  <button onClick={() => setShowRoleMenu(v => !v)}>
+                    <span className="vlabel">Viewing as</span>
+                    <span>{viewRole === 'admin' ? 'Admin' : viewRole === 'client' ? 'Client Reviewer' : 'BA / PM'}</span>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="m6 9 6 6 6-6"/></svg>
+                  </button>
+                  {showRoleMenu && <RoleMenu onClose={() => setShowRoleMenu(false)} />}
+                </>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--line)', fontSize: '13px', color: 'var(--ink-soft)', userSelect: 'none' }}>
+                  <span style={{ fontSize: '11px', opacity: 0.7 }}>Signed in as</span>
+                  <span style={{ fontWeight: 600, color: 'var(--ink)' }}>
+                    {viewRole === 'client' ? 'Client Reviewer' : 'BA / PM'}
+                  </span>
+                </div>
+              )}
             </div>
 
             {!isClient && (

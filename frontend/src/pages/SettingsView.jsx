@@ -1,8 +1,20 @@
 import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import useAppStore from '../store/appStore'
+import { auth } from '../services/api'
+
+function fmtTs(iso) {
+  const d = new Date(iso)
+  return d.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false })
+}
 
 export default function SettingsView() {
   const { showToast } = useAppStore()
+
+  const { data: auditEvents = [], isLoading: auditLoading } = useQuery({
+    queryKey: ['audit-log'],
+    queryFn: () => auth.auditLog().then(r => r.data),
+  })
   const [switches, setSwitches] = useState({
     pii: true, recordings: true, gdpr: true, anon: false,
     clientActions: true, gapAnalysis: true, blockers: true, deadlines: true,
@@ -73,15 +85,19 @@ export default function SettingsView() {
 
       <div className="set-card">
         <h4>Audit log (latest)</h4>
-        <div className="audit">
-          12 Jun 09:42 <b>priya.k</b> VIEW prd/medaxis v0.9<br />
-          12 Jun 09:33 <b>l.weber</b> COMMENT prd/medaxis §6<br />
-          12 Jun 09:18 <b>priya.k</b> LOGIN sso/google ok<br />
-          11 Jun 18:20 <b>system</b> GAP_ANALYSIS hr-onboarding → 4 questions<br />
-          11 Jun 11:05 <b>priya.k</b> SUBMIT_APPROVAL medaxis → l.weber@medaxis.de<br />
-          10 Jun 17:31 <b>feas-agent</b> SANCTIONS_HIT volkov OFAC_SDN 0.94<br />
-          09 Jun 14:05 <b>r.haddad</b> APPROVE nimbus v1.0 (locked)
-        </div>
+        {auditLoading ? (
+          <p style={{ color: 'var(--muted)', fontSize: 12 }}>Loading…</p>
+        ) : auditEvents.length === 0 ? (
+          <p style={{ color: 'var(--muted)', fontSize: 12 }}>No audit events yet.</p>
+        ) : (
+          <div className="audit">
+            {auditEvents.map((e, i) => (
+              <span key={i}>
+                {fmtTs(e.ts)} <b>{e.actor}</b> {e.action}{e.detail ? ` ${e.detail}` : ''}{i < auditEvents.length - 1 ? <br /> : null}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
