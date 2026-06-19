@@ -5,6 +5,59 @@ import useAuthStore from '../store/authStore'
 import useAppStore from '../store/appStore'
 import { FeasBadge, MeterColor, Avatar, AvatarStack } from '../components/Badge'
 import { STAGES, FLOW, SECTION_NAMES } from '../data/mockData'
+import { exportPrd } from '../services/api'
+
+/* ---- Export button ---- */
+function ExportButton({ projectId, projectName }) {
+  const { busyToast, showToast } = useAppStore()
+  const [open, setOpen] = useState(false)
+
+  async function doExport(fmt) {
+    setOpen(false)
+    busyToast(`Exporting ${fmt.toUpperCase()}…`)
+    try {
+      const res = await exportPrd.download(projectId, fmt)
+      const url = URL.createObjectURL(new Blob([res.data], { type: res.headers['content-type'] }))
+      const a = document.createElement('a')
+      a.href = url
+      const cd = res.headers['content-disposition'] || ''
+      const match = cd.match(/filename="?([^"]+)"?/)
+      a.download = match ? match[1] : `${projectName.replace(/\s+/g, '_')}_PRD.${fmt}`
+      a.click()
+      URL.revokeObjectURL(url)
+      showToast(`Exported ${a.download}`)
+    } catch {
+      showToast('Export failed — make sure the pipeline has completed first', 'error')
+    }
+  }
+
+  return (
+    <div style={{ position: 'relative', display: 'inline-block' }}>
+      <button className="btn btn-ghost" onClick={() => setOpen(o => !o)}>
+        Export ▾
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', right: 0, marginTop: '4px',
+          background: 'var(--paper)', border: '1px solid var(--line)',
+          borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,.12)',
+          zIndex: 200, minWidth: '130px', overflow: 'hidden',
+        }}>
+          {[['pdf','PDF'], ['docx','Word (DOCX)'], ['md','Markdown']].map(([fmt, label]) => (
+            <button key={fmt} onClick={() => doExport(fmt)} style={{
+              display: 'block', width: '100%', padding: '9px 16px', textAlign: 'left',
+              background: 'none', border: 'none', cursor: 'pointer',
+              fontSize: '13.5px', color: 'var(--ink)',
+            }}
+            onMouseEnter={e => e.target.style.background = 'var(--surface)'}
+            onMouseLeave={e => e.target.style.background = 'none'}
+            >{label}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 /* ---- helpers ---- */
 function mk(t) {
@@ -541,12 +594,12 @@ export default function ProjectWorkspace() {
   const viewRole = useAuthStore(s => s.viewRole)
   const isClient = viewRole === 'client'
 
-  const p = projects.find(x => x.id === id)
+  const p = projects.find(x => String(x.id) === String(id))
   const tab = tabParam || 'overview'
 
   if (!p) return <div style={{padding:'40px',color:'var(--ink-soft)'}}>Project not found.</div>
 
-  const openCount = p.clars.filter(c => c.state === 'open').length
+  const openCount = (p.clars || []).filter(c => c.state === 'open').length
   const cCount = p.comments.reduce((a, t) => a + (t.resolved ? 0 : t.thread.length), 0)
 
   const TABS = isClient
@@ -625,7 +678,7 @@ export default function ProjectWorkspace() {
             ) : (
               <>
                 <button className="btn btn-ghost" onClick={runFeasibility}>⚖ Run feasibility</button>
-                <button className="btn btn-ghost" onClick={() => { busyToast('Generating versioned PDF export…'); setTimeout(()=>showToast(`Exported ${p.name.replace(/\s+/g,'_')}_PRD.pdf`),1100) }}>Export PDF / Word</button>
+                <ExportButton projectId={p.id} projectName={p.name} />
                 <button className="btn btn-primary" disabled={p.status==='blocked'} title={p.status==='blocked'?'Hard blocker — resolve or request Admin override':undefined} onClick={submitApproval}>
                   {p.status === 'approved' ? 'Approved · locked' : 'Submit for approval'}
                 </button>
