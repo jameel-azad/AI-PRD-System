@@ -27,16 +27,18 @@ async function logoutAndClear() {
 }
 
 export const auth = {
-  register:       data          => api.post('/auth/register', data),
-  login:          data          => api.post('/auth/login', data),
-  logout:         ()            => logoutAndClear(),
-  refresh:        ()            => api.post('/auth/refresh'),
-  me:             ()            => api.get('/auth/me'),
-  auditLog:       ()            => api.get('/auth/audit-log'),
-  users:          ()            => api.get('/auth/users'),
-  createUser:     data          => api.post('/auth/users', data),
-  updateUserRole: (id, role)    => api.patch(`/auth/users/${id}/role`, { role }),
-  deleteUser:     id            => api.delete(`/auth/users/${id}`),
+  register:        data          => api.post('/auth/register', data),
+  login:           data          => api.post('/auth/login', data),
+  logout:          ()            => logoutAndClear(),
+  refresh:         ()            => api.post('/auth/refresh'),
+  me:              ()            => api.get('/auth/me'),
+  forgotPassword:  email         => api.post('/auth/forgot-password', { email }),
+  resetPassword:   data          => api.post('/auth/reset-password', data),
+  auditLog:        ()            => api.get('/auth/audit-log'),
+  users:           ()            => api.get('/auth/users'),
+  createUser:      data          => api.post('/auth/users', data),
+  updateUserRole:  (id, role)    => api.patch(`/auth/users/${id}/role`, { role }),
+  deleteUser:      id            => api.delete(`/auth/users/${id}`),
 }
 
 export const projects = {
@@ -47,6 +49,7 @@ export const projects = {
   comments:       id                    => api.get(`/projects/${id}/comments`),
   addComment:     (id, data)            => api.post(`/projects/${id}/comments`, data),
   resolveComment: (projectId, commentId) => api.patch(`/projects/${projectId}/comments/${commentId}/resolve`),
+  answerGap:      (projectId, gapKey, answer) => api.patch(`/projects/${projectId}/gaps/answer`, { gap_key: gapKey, answer }),
 }
 
 export const files = {

@@ -73,16 +73,33 @@ export default function LoginPage() {
     startOtp('signup', suEmail)
   }
 
-  function handleForgot(e) {
+  const [fpLoading, setFpLoading] = useState(false)
+  const [otpLoading, setOtpLoading] = useState(false)
+
+  async function handleForgot(e) {
     e.preventDefault()
+    setError('')
     if (!fpEmail) { setError('Enter your account email'); return }
-    startOtp('reset', fpEmail)
+    setFpLoading(true)
+    try {
+      const { data } = await auth.forgotPassword(fpEmail)
+      // In dev mode the backend returns the code in _dev_code; auto-fill it.
+      if (data._dev_code) {
+        const digits = String(data._dev_code).split('')
+        setOtp(digits)
+      }
+      startOtp('reset', fpEmail)
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Could not send reset code. Try again.')
+    } finally {
+      setFpLoading(false)
+    }
   }
 
   function startOtp(context, email) {
     setOtpContext(context)
     setOtpTarget(email)
-    setOtp(['','','','','',''])
+    if (!otp.some(d => d)) setOtp(['','','','','',''])
     setScreen('otp')
     showToast(`Verification code sent to ${email}`)
   }
@@ -91,11 +108,18 @@ export default function LoginPage() {
     e.preventDefault()
     const code = otp.join('')
     if (code.length < 6) { setError('Enter all 6 digits'); return }
-    if (code !== '123456') { setError('Incorrect code — use 123456 for the demo'); return }
     if (otpContext === 'reset') {
       if (otpPwd.length < 8) { setError('New password must be at least 8 characters'); return }
-      setScreen('signin')
-      showToast('Password reset — you can now sign in')
+      setOtpLoading(true)
+      try {
+        await auth.resetPassword({ email: otpTarget, code, new_password: otpPwd })
+        setScreen('signin')
+        showToast('Password reset — you can now sign in')
+      } catch (err) {
+        setError(err.response?.data?.detail || 'Reset failed. Check your code and try again.')
+      } finally {
+        setOtpLoading(false)
+      }
     } else {
       setSuLoading(true)
       try {
@@ -223,7 +247,7 @@ export default function LoginPage() {
             <p className="lead">Enter your account email and we'll send a 6-digit verification code to reset your password.</p>
             <div className="field"><label>Work email</label><input type="email" required value={fpEmail} onChange={e => setFpEmail(e.target.value)} placeholder="you@xccelera.com" /></div>
             {error && <p style={{fontSize:'12.5px',color:'var(--red)',marginBottom:'12px'}}>{error}</p>}
-            <button type="submit" className="btn btn-primary" style={{width:'100%',justifyContent:'center',padding:'12px'}}>Send verification code</button>
+            <button type="submit" className="btn btn-primary" style={{width:'100%',justifyContent:'center',padding:'12px'}} disabled={fpLoading}>{fpLoading ? 'Sending…' : 'Send verification code'}</button>
           </form>
         )}
 
@@ -245,7 +269,7 @@ export default function LoginPage() {
               <div className="field"><label>New password</label><input type="password" value={otpPwd} onChange={e => setOtpPwd(e.target.value)} placeholder="At least 8 characters" /></div>
             )}
             {error && <p style={{fontSize:'12.5px',color:'var(--red)',marginBottom:'12px'}}>{error}</p>}
-            <button type="submit" className="btn btn-primary" style={{width:'100%',justifyContent:'center',padding:'12px'}}>Verify</button>
+            <button type="submit" className="btn btn-primary" style={{width:'100%',justifyContent:'center',padding:'12px'}} disabled={otpLoading || suLoading}>{(otpLoading || suLoading) ? 'Verifying…' : 'Verify'}</button>
             <p className="auth-switch">Didn't get a code? <a href="#" onClick={e => { e.preventDefault(); setOtp(['','','','','','']); showToast('A new code has been sent') }}>Resend</a></p>
           </form>
         )}

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { INITIAL_PROJECTS, USERS, BUILTIN_ROLES } from '../data/mockData'
+import { BUILTIN_ROLES } from '../data/mockData'
 import { projects as projectsApi } from '../services/api'
 import useAuthStore from './authStore'
 import useAppStore from './appStore'
@@ -8,6 +8,8 @@ const STAGE_TO_INDEX = {
   intake: 0, processing: 1, drafted: 2,
   gap_review: 3, feasibility: 4, client_review: 5, approved: 6,
 }
+
+const PAGE_SIZE = 20
 
 function apiProjectToStore(p) {
   const stageLabel = (p.stage || 'intake').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
@@ -19,7 +21,7 @@ function apiProjectToStore(p) {
     country: '',
     industry: '',
     feas: 'green',
-    completeness: 0,
+    completeness: p.completeness ?? 0,
     status: p.stage === 'approved' ? 'approved' : p.stage === 'processing' ? 'draft' : 'intake',
     statusLabel: stageLabel,
     langs: 'EN',
@@ -56,6 +58,8 @@ const useProjectStore = create((set, get) => ({
   projects: [],
   users: [],
   roles: JSON.parse(JSON.stringify(BUILTIN_ROLES)),
+  hasMore: false,
+  nextOffset: 0,
 
   projById: (id) => get().projects.find(p => String(p.id) === String(id)),
   userById: (id) => get().users.find(u => u.id === id),
@@ -85,22 +89,37 @@ const useProjectStore = create((set, get) => ({
     }
 
     try {
-      const { data } = await projectsApi.list()
+      const { data } = await projectsApi.list({ limit: PAGE_SIZE, offset: 0 })
       const users = currentUser ? [currentUserEntry(currentUser)] : []
-      set({ projects: data.map(apiProjectToStore), users })
+      set({
+        projects: data.map(apiProjectToStore),
+        users,
+        hasMore: data.length === PAGE_SIZE,
+        nextOffset: PAGE_SIZE,
+      })
       // Real API succeeded — notifications start empty (real events will push in over time)
       useAppStore.getState().clearNotifications()
     } catch {
-      // API unreachable — fall back to demo data so the UI still renders.
-      set({
-        projects: JSON.parse(JSON.stringify(INITIAL_PROJECTS)),
-        users: JSON.parse(JSON.stringify(USERS)),
-      })
-      useAppStore.getState().loadDemoNotifications()
+      // API unreachable — show empty state with an error toast. Never substitute fake data.
+      set({ projects: [], users: currentUser ? [currentUserEntry(currentUser)] : [], hasMore: false, nextOffset: 0 })
       useAppStore.getState().showToast(
-        'Backend unreachable — showing demo data. Real data will appear when the API is available.',
-        'offline mode'
+        'Could not reach the backend — check that the server is running.',
+        'error'
       )
+    }
+  },
+
+  loadMoreProjects: async () => {
+    const { nextOffset } = get()
+    try {
+      const { data } = await projectsApi.list({ limit: PAGE_SIZE, offset: nextOffset })
+      set(s => ({
+        projects: [...s.projects, ...data.map(apiProjectToStore)],
+        hasMore: data.length === PAGE_SIZE,
+        nextOffset: nextOffset + PAGE_SIZE,
+      }))
+    } catch {
+      useAppStore.getState().showToast('Failed to load more projects.', 'error')
     }
   },
 

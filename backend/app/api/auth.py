@@ -1,3 +1,5 @@
+import logging
+import secrets
 import time
 from collections import defaultdict
 
@@ -12,12 +14,18 @@ from app.core.database import get_db
 from app.core.security import hash_password, verify_password, create_access_token
 from app.api.deps import get_current_user, require_admin
 
+_log = logging.getLogger(__name__)
+
 _COOKIE = "xccelera_token"
 
 # Simple in-memory rate limiter: max 10 login attempts per IP per 15 minutes.
 _LOGIN_ATTEMPTS: dict = defaultdict(list)
 _RATE_LIMIT = 10
 _RATE_WINDOW = 900  # 15 minutes in seconds
+
+# In-memory password reset codes: email -> (code, expires_at)
+_RESET_CODES: dict[str, tuple[str, float]] = {}
+_RESET_CODE_TTL = 600  # 10 minutes
 
 
 def _check_login_rate(ip: str) -> None:
@@ -59,6 +67,16 @@ class RegisterBody(BaseModel):
 class LoginBody(BaseModel):
     email: str
     password: str
+
+
+class ForgotBody(BaseModel):
+    email: str
+
+
+class ResetBody(BaseModel):
+    email: str
+    code: str
+    new_password: str
 
 
 def _user_out(user: User) -> dict:
@@ -116,6 +134,41 @@ async def refresh(current_user: User = Depends(get_current_user)):
     resp = JSONResponse(content={"user": _user_out(current_user)})
     _set_auth_cookie(resp, token)
     return resp
+
+
+@router.post("/forgot-password")
+async def forgot_password(body: ForgotBody, db: AsyncSession = Depends(get_db)):
+    user = (await db.execute(select(User).where(User.email == body.email))).scalar_one_or_none()
+    if user:
+        code = f"{secrets.randbelow(900000) + 100000}"  # 6-digit
+        _RESET_CODES[body.email] = (code, time.time() + _RESET_CODE_TTL)
+        # In production, send this code via email. In dev, expose it in the response.
+        _log.warning("[DEV] Password reset code for %s: %s", body.email, code)
+        return {"detail": "Reset code sent.", "_dev_code": code}
+    # Return same shape regardless — don't reveal whether email exists.
+    return {"detail": "Reset code sent."}
+
+
+@router.post("/reset-password")
+async def reset_password(body: ResetBody, db: AsyncSession = Depends(get_db)):
+    entry = _RESET_CODES.get(body.email)
+    if not entry:
+        raise HTTPException(400, "Invalid or expired reset code. Request a new one.")
+    stored_code, expires_at = entry
+    if time.time() > expires_at:
+        del _RESET_CODES[body.email]
+        raise HTTPException(400, "Reset code expired. Request a new one.")
+    if body.code != stored_code:
+        raise HTTPException(400, "Incorrect reset code.")
+    if len(body.new_password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters.")
+    user = (await db.execute(select(User).where(User.email == body.email))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, "User not found.")
+    user.hashed_pw = hash_password(body.new_password)
+    await db.commit()
+    del _RESET_CODES[body.email]
+    return {"detail": "Password reset successfully. You can now sign in."}
 
 
 @router.get("/me")

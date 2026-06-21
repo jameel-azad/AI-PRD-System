@@ -23,10 +23,17 @@ const STAGE_TO_INDEX = {
 
 export default function ProjectsView() {
   const navigate = useNavigate()
-  const { projects, userById } = useProjectStore()
+  const { projects, userById, hasMore, loadMoreProjects } = useProjectStore()
   const { openModal } = useAppStore()
   const [search, setSearch] = useState('')
   const [stageFilter, setStageFilter] = useState('')
+  const [loadingMore, setLoadingMore] = useState(false)
+
+  async function handleLoadMore() {
+    setLoadingMore(true)
+    await loadMoreProjects()
+    setLoadingMore(false)
+  }
 
   const filtered = useMemo(() => {
     let list = projects
@@ -135,6 +142,13 @@ export default function ProjectsView() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+      {hasMore && !search && !stageFilter && (
+        <div style={{ textAlign: 'center', marginTop: '16px' }}>
+          <button className="btn btn-ghost" onClick={handleLoadMore} disabled={loadingMore}>
+            {loadingMore ? 'Loading…' : 'Load more projects'}
+          </button>
         </div>
       )}
       <p style={{ marginTop: '14px', fontSize: '12.5px', color: 'var(--ink-soft)' }}>

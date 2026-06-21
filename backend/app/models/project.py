@@ -1,7 +1,8 @@
 import enum
 from datetime import datetime
+from typing import Optional
 
-from sqlalchemy import Enum as SAEnum, ForeignKey
+from sqlalchemy import Enum as SAEnum, ForeignKey, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -28,3 +29,4 @@ class Project(Base):
     )
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    gap_answers: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
