@@ -30,6 +30,7 @@ export const auth = {
   register:       data          => api.post('/auth/register', data),
   login:          data          => api.post('/auth/login', data),
   logout:         ()            => logoutAndClear(),
+  refresh:        ()            => api.post('/auth/refresh'),
   me:             ()            => api.get('/auth/me'),
   auditLog:       ()            => api.get('/auth/audit-log'),
   users:          ()            => api.get('/auth/users'),
@@ -39,7 +40,7 @@ export const auth = {
 }
 
 export const projects = {
-  list:        ()           => api.get('/projects/'),
+  list:        (params)     => api.get('/projects/', { params }),
   get:         id           => api.get(`/projects/${id}`),
   create:      data         => api.post('/projects/', data),
   updateStage: (id, stage)  => api.patch(`/projects/${id}/stage`, { stage }),
@@ -58,9 +59,11 @@ export const files = {
 }
 
 export const prd = {
-  get:       projectId => api.get(`/prd/${projectId}`),
-  approve:   (projectId, data) => api.post(`/prd/${projectId}/approve`, data),
-  approvals: projectId => api.get(`/prd/${projectId}/approvals`),
+  get:        projectId              => api.get(`/prd/${projectId}`),
+  versions:   projectId              => api.get(`/prd/${projectId}/versions`),
+  getVersion: (projectId, versionNum) => api.get(`/prd/${projectId}/version/${versionNum}`),
+  approve:    (projectId, data)      => api.post(`/prd/${projectId}/approve`, data),
+  approvals:  projectId              => api.get(`/prd/${projectId}/approvals`),
 }
 
 export const feasibility = {

@@ -88,6 +88,47 @@ async def approve_prd(
     return {"id": approval.id, "status": approval.status, "created_at": approval.created_at}
 
 
+@router.get("/{project_id}/versions")
+async def list_prd_versions(
+    project_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not await db.get(Project, project_id):
+        raise HTTPException(404, "Project not found")
+    rows = (
+        await db.execute(
+            select(PRDVersion.id, PRDVersion.version, PRDVersion.created_at)
+            .where(PRDVersion.project_id == project_id)
+            .order_by(desc(PRDVersion.version))
+        )
+    ).all()
+    return [{"id": r.id, "version": r.version, "created_at": r.created_at} for r in rows]
+
+
+@router.get("/{project_id}/version/{version_num}")
+async def get_prd_version(
+    project_id: int,
+    version_num: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not await db.get(Project, project_id):
+        raise HTTPException(404, "Project not found")
+    prd = (
+        await db.execute(
+            select(PRDVersion)
+            .where(PRDVersion.project_id == project_id, PRDVersion.version == version_num)
+        )
+    ).scalars().first()
+    if not prd:
+        raise HTTPException(404, f"PRD version {version_num} not found")
+    content = dict(prd.content or {})
+    scores = content.pop("_scores", {})
+    gaps = content.pop("_gaps", [])
+    return {"id": prd.id, "version": prd.version, "project_id": project_id, "content": content, "scores": scores, "gaps": gaps, "created_at": prd.created_at}
+
+
 @router.get("/{project_id}/approvals")
 async def get_approvals(
     project_id: int,

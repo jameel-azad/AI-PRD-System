@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,12 +32,27 @@ class CommentBody(BaseModel):
 
 @router.get("/")
 async def list_projects(
+    q: Optional[str] = Query(None, description="Filter by project name or client org (case-insensitive substring)"),
+    stage: Optional[str] = Query(None, description="Filter by project stage enum value"),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     query = select(Project).order_by(Project.created_at.desc())
     if current_user.role.value != "admin":
         query = query.where(Project.owner_id == current_user.id)
+    if q:
+        like = f"%{q}%"
+        query = query.where(
+            (Project.name.ilike(like)) | (Project.client_org.ilike(like))
+        )
+    if stage:
+        try:
+            query = query.where(Project.stage == ProjectStage(stage))
+        except ValueError:
+            pass  # ignore invalid stage values
+    query = query.offset(offset).limit(limit)
     rows = (await db.execute(query)).scalars().all()
     return [
         {"id": p.id, "name": p.name, "client_org": p.client_org, "stage": p.stage, "created_at": p.created_at}

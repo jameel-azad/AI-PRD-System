@@ -33,6 +33,7 @@ function apiProjectToStore(p) {
     tag: `${p.requirement_count ?? 0} requirements`,
     sections: new Array(14).fill(0),
     inputs: (p.files || []).map(f => ({
+      fileId: f.id,
       name: f.filename,
       kind: f.file_type,
       size: '—',

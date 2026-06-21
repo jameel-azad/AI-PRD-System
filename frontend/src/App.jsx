@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-route
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import useAuthStore from './store/authStore'
 import useProjectStore from './store/projectStore'
+import { auth as authApi } from './services/api'
 import LoginPage from './pages/LoginPage'
 import AppShell from './components/AppShell'
 import Dashboard from './pages/Dashboard'
@@ -19,16 +20,6 @@ import ModalHost from './components/ModalHost'
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
 })
-
-function tokenIsValid(token) {
-  if (!token) return false
-  try {
-    const payload = JSON.parse(atob(token.split('.')[1]))
-    return typeof payload.exp === 'number' && payload.exp * 1000 > Date.now()
-  } catch {
-    return false
-  }
-}
 
 function NotFound() {
   const navigate = useNavigate()
@@ -47,13 +38,25 @@ function NotFound() {
 }
 
 function PrivateRoute({ children }) {
-  const token = useAuthStore(s => s.token)
-  return tokenIsValid(token) ? children : <Navigate to="/login" replace />
+  const user = useAuthStore(s => s.user)
+  return user ? children : <Navigate to="/login" replace />
+}
+
+function RoleRoute({ roles, children }) {
+  const viewRole = useAuthStore(s => s.viewRole)
+  return roles.includes(viewRole) ? children : <Navigate to="/" replace />
 }
 
 function AuthedApp() {
   const initFromApi = useProjectStore(s => s.initFromApi)
   useEffect(() => { initFromApi() }, [initFromApi])
+
+  useEffect(() => {
+    // Silently refresh the auth cookie on mount and every 20 minutes to prevent silent expiry.
+    authApi.refresh().catch(() => {})
+    const id = setInterval(() => { authApi.refresh().catch(() => {}) }, 20 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [])
 
   return (
     <AppShell>
@@ -64,9 +67,9 @@ function AuthedApp() {
         <Route path="/projects/:id" element={<ProjectWorkspace />} />
         <Route path="/projects/:id/:tab" element={<ProjectWorkspace />} />
         <Route path="/clarifications" element={<ClarificationsView />} />
-        <Route path="/approvals" element={<ApprovalsView />} />
-        <Route path="/clients" element={<ClientsView />} />
-        <Route path="/team" element={<TeamView />} />
+        <Route path="/approvals" element={<RoleRoute roles={['admin','bapm']}><ApprovalsView /></RoleRoute>} />
+        <Route path="/clients" element={<RoleRoute roles={['admin','bapm']}><ClientsView /></RoleRoute>} />
+        <Route path="/team" element={<RoleRoute roles={['admin']}><TeamView /></RoleRoute>} />
         <Route path="/settings" element={<SettingsView />} />
         <Route path="*" element={<NotFound />} />
       </Routes>

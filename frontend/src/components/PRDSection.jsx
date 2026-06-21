@@ -1,6 +1,31 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { prd as prdApi } from '../services/api'
+import { prd as prdApi, queue as queueApi } from '../services/api'
+
+function VersionPicker({ projectId, currentVersion, onSelect }) {
+  const { data: versions = [] } = useQuery({
+    queryKey: ['prd-versions', projectId],
+    queryFn:  () => prdApi.versions(projectId).then(r => r.data),
+    retry: false,
+  })
+  if (versions.length <= 1) return null
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', fontSize: '13px' }}>
+      <span style={{ color: 'var(--ink-soft)' }}>Version:</span>
+      <select
+        value={currentVersion}
+        onChange={e => onSelect(Number(e.target.value))}
+        style={{ padding: '4px 8px', border: '1px solid var(--line)', borderRadius: '5px', fontSize: '13px', background: 'var(--surface)', color: 'var(--ink)' }}
+      >
+        {versions.map(v => (
+          <option key={v.version} value={v.version}>
+            v{v.version} — {new Date(v.created_at).toLocaleDateString()}
+          </option>
+        ))}
+      </select>
+    </div>
+  )
+}
 
 const SECTION_LABELS = {
   project_overview: 'Project Overview', business_objectives: 'Business Objectives',
@@ -54,17 +79,47 @@ function Section({ title, data, score }) {
 
 export default function PRDSection({ projectId }) {
   const qc = useQueryClient()
+  const [regenerating, setRegenerating] = useState(false)
+  const [regenMsg, setRegenMsg] = useState('')
+  const [selectedVersion, setSelectedVersion] = useState(null)
 
-  const { data, isLoading, error } = useQuery({
+  const { data: latestData, isLoading, error } = useQuery({
     queryKey: ['prd', projectId],
     queryFn:  () => prdApi.get(projectId).then(r => r.data),
     retry: false,
   })
 
+  const { data: versionData } = useQuery({
+    queryKey: ['prd-version', projectId, selectedVersion],
+    queryFn:  () => prdApi.getVersion(projectId, selectedVersion).then(r => r.data),
+    enabled:  selectedVersion !== null && selectedVersion !== latestData?.version,
+    retry: false,
+  })
+
+  const data = (selectedVersion !== null && selectedVersion !== latestData?.version && versionData)
+    ? versionData
+    : latestData
+
   const approveMutation = useMutation({
     mutationFn: () => prdApi.approve(projectId, {}),
     onSuccess:  () => qc.invalidateQueries(['prd', projectId]),
   })
+
+  async function regeneratePRD() {
+    setRegenerating(true)
+    setRegenMsg('')
+    try {
+      const { data: result } = await queueApi.reprocess(projectId)
+      const count = result.queued?.length ?? 0
+      setRegenMsg(count > 0
+        ? `Re-queued ${count} file${count !== 1 ? 's' : ''} — PRD will update when processing completes.`
+        : 'All files already processed. No files to re-queue.')
+    } catch {
+      setRegenMsg('Failed to re-queue files — check that the backend is running.')
+    } finally {
+      setRegenerating(false)
+    }
+  }
 
   if (isLoading) return <div className="text-center py-12 text-gray-400">Loading PRD…</div>
   if (error)     return (
@@ -83,19 +138,34 @@ export default function PRDSection({ projectId }) {
 
   return (
     <div className="space-y-6">
+      <VersionPicker
+        projectId={projectId}
+        currentVersion={selectedVersion ?? data?.version}
+        onSelect={v => setSelectedVersion(v === latestData?.version ? null : v)}
+      />
       {/* Overall score banner */}
-      <div className={`rounded-xl border px-6 py-4 flex items-center justify-between ${overallColor}`}>
+      <div className={`rounded-xl border px-6 py-4 flex items-center justify-between gap-3 flex-wrap ${overallColor}`}>
         <div>
           <p className="font-semibold">Overall Completeness: {Math.round(overall * 100)}%</p>
           <p className="text-sm mt-0.5 opacity-80">Version {data.version} · Generated {new Date(data.created_at).toLocaleString()}</p>
+          {regenMsg && <p className="text-sm mt-1 font-medium">{regenMsg}</p>}
         </div>
-        <button
-          onClick={() => approveMutation.mutate()}
-          disabled={approveMutation.isPending}
-          className="bg-white border border-current px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
-        >
-          {approveMutation.isPending ? 'Approving…' : 'Approve PRD'}
-        </button>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button
+            onClick={regeneratePRD}
+            disabled={regenerating}
+            className="bg-white border border-current px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+          >
+            {regenerating ? 'Queuing…' : '↻ Regenerate PRD'}
+          </button>
+          <button
+            onClick={() => approveMutation.mutate()}
+            disabled={approveMutation.isPending}
+            className="bg-white border border-current px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+          >
+            {approveMutation.isPending ? 'Approving…' : 'Approve PRD'}
+          </button>
+        </div>
       </div>
 
       {/* Gap questions */}

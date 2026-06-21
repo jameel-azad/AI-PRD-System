@@ -58,6 +58,9 @@ export default function Dashboard() {
   const awaitingApproval = projects.filter(p => stageIs(p, 'client_review', 5)).length
   const gapReview        = projects.filter(p => stageIs(p, 'gap_review', 3))
   const inProgress       = projects.filter(p => stageIs(p, 'processing', 1))
+  const avgComp          = projects.length
+    ? Math.round(projects.reduce((s, p) => s + (p.completeness || 0), 0) / projects.length)
+    : 0
 
   function openProject(p) {
     if (p.status === 'blocked') navigate(`/projects/${p.id}/feasibility`)

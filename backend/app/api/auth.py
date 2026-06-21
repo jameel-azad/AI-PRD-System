@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
+import time
+from collections import defaultdict
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -10,6 +13,21 @@ from app.core.security import hash_password, verify_password, create_access_toke
 from app.api.deps import get_current_user, require_admin
 
 _COOKIE = "xccelera_token"
+
+# Simple in-memory rate limiter: max 10 login attempts per IP per 15 minutes.
+_LOGIN_ATTEMPTS: dict = defaultdict(list)
+_RATE_LIMIT = 10
+_RATE_WINDOW = 900  # 15 minutes in seconds
+
+
+def _check_login_rate(ip: str) -> None:
+    now = time.time()
+    window_start = now - _RATE_WINDOW
+    attempts = [t for t in _LOGIN_ATTEMPTS[ip] if t > window_start]
+    _LOGIN_ATTEMPTS[ip] = attempts
+    if len(attempts) >= _RATE_LIMIT:
+        raise HTTPException(429, f"Too many login attempts. Try again in {_RATE_WINDOW // 60} minutes.")
+    _LOGIN_ATTEMPTS[ip].append(now)
 
 
 def _set_auth_cookie(response: Response, token: str) -> None:
@@ -73,7 +91,8 @@ async def register(body: RegisterBody, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/login")
-async def login(body: LoginBody, db: AsyncSession = Depends(get_db)):
+async def login(request: Request, body: LoginBody, db: AsyncSession = Depends(get_db)):
+    _check_login_rate(request.client.host if request.client else "unknown")
     user = (await db.execute(select(User).where(User.email == body.email))).scalar_one_or_none()
     if not user or not verify_password(body.password, user.hashed_pw):
         raise HTTPException(401, "Invalid credentials")
@@ -87,6 +106,15 @@ async def login(body: LoginBody, db: AsyncSession = Depends(get_db)):
 async def logout():
     resp = JSONResponse(content={"ok": True})
     resp.delete_cookie(key=_COOKIE, path="/", samesite="lax")
+    return resp
+
+
+@router.post("/refresh")
+async def refresh(current_user: User = Depends(get_current_user)):
+    """Re-issue the auth cookie, extending the session by JWT_EXPIRE_MINUTES."""
+    token = create_access_token({"sub": str(current_user.id), "role": current_user.role.value})
+    resp = JSONResponse(content={"user": _user_out(current_user)})
+    _set_auth_cookie(resp, token)
     return resp
 
 

@@ -5,7 +5,7 @@ import useAuthStore from '../store/authStore'
 import useAppStore from '../store/appStore'
 import { FeasBadge, MeterColor, Avatar, AvatarStack } from '../components/Badge'
 import { STAGES, FLOW, SECTION_NAMES } from '../data/mockData'
-import { exportPrd, prd as prdApi, projects as projectsApi, queue as queueApi } from '../services/api'
+import { exportPrd, files as filesApi, prd as prdApi, projects as projectsApi, queue as queueApi } from '../services/api'
 import PRDSection from '../components/PRDSection'
 import FeasibilityPanel from '../components/FeasibilityPanel'
 import DiscussionThread from '../components/DiscussionThread'
@@ -178,6 +178,7 @@ function TabInputs({ p }) {
   const { updateProject } = useProjectStore()
   const [refreshing,    setRefreshing]    = useState(false)
   const [reprocessing,  setReprocessing]  = useState(false)
+  const [deletingId,    setDeletingId]    = useState(null)
   const fkIco = { video:'🎥', audio:'🎙', doc:'📄', email:'✉️', chat:'💬' }
 
   const hasIncomplete = p.inputs.some(f => f.stat !== 'done')
@@ -207,6 +208,7 @@ function TabInputs({ p }) {
       updateProject(p.id, proj => ({
         ...proj,
         inputs: (data.files || []).map(f => ({
+          fileId: f.id,
           name: f.filename,
           kind: f.file_type,
           size: '—',
@@ -220,6 +222,19 @@ function TabInputs({ p }) {
       showToast('Could not refresh — backend may be unavailable', 'error')
     } finally {
       setRefreshing(false)
+    }
+  }
+
+  async function deleteFile(fileId) {
+    setDeletingId(fileId)
+    try {
+      await filesApi.delete(fileId)
+      updateProject(p.id, proj => ({ ...proj, inputs: proj.inputs.filter(f => f.fileId !== fileId) }))
+      showToast('File removed')
+    } catch {
+      showToast('Could not delete file', 'error')
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -267,6 +282,16 @@ function TabInputs({ p }) {
               <div className={`fr-stat ${f.stat==='done'?'done':f.stat==='proc'?'proc':f.stat==='err'?'err':'queue'}`}>
                 {f.stat==='done'?'Indexed':f.stat==='proc'?'Processing':f.stat==='err'?'Error':'Queued'}
               </div>
+              {f.fileId && (
+                <button
+                  onClick={() => deleteFile(f.fileId)}
+                  disabled={deletingId === f.fileId}
+                  title="Delete file"
+                  style={{ background:'none', border:'none', cursor:'pointer', color:'var(--ink-soft)', padding:'4px 6px', fontSize:'14px', lineHeight:1 }}
+                >
+                  {deletingId === f.fileId ? '…' : '✕'}
+                </button>
+              )}
             </div>
           ))
         }
