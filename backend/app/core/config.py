@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     # ── CORS allowed origins (comma-separated) ────────────────────────
     CORS_ORIGINS: str = "http://localhost:5173"
 
+    # ── Registration gate ─────────────────────────────────────────────
+    # Set to false in production to block self-registration entirely.
+    # Accounts must then be created by an admin via the team management API.
+    REGISTRATION_OPEN: bool = True
+
     def validate_required_keys(self) -> None:
         """Called at startup — fails fast with a clear error if keys are missing."""
         if not self.GEMINI_API_KEY:

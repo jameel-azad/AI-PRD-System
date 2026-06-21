@@ -23,10 +23,14 @@ api.interceptors.response.use(
 )
 
 export const auth = {
-  register: data => api.post('/auth/register', data),
-  login:    data => api.post('/auth/login', data),
-  me:       ()   => api.get('/auth/me'),
-  auditLog: ()   => api.get('/auth/audit-log'),
+  register:       data          => api.post('/auth/register', data),
+  login:          data          => api.post('/auth/login', data),
+  me:             ()            => api.get('/auth/me'),
+  auditLog:       ()            => api.get('/auth/audit-log'),
+  users:          ()            => api.get('/auth/users'),
+  createUser:     data          => api.post('/auth/users', data),
+  updateUserRole: (id, role)    => api.patch(`/auth/users/${id}/role`, { role }),
+  deleteUser:     id            => api.delete(`/auth/users/${id}`),
 }
 
 export const projects = {
@@ -44,6 +48,7 @@ export const files = {
     form.append('file', file)
     return api.post(`/files/${projectId}/upload`, form)
   },
+  delete: fileId => api.delete(`/files/${fileId}`),
 }
 
 export const prd = {

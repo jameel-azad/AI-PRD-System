@@ -1,19 +1,67 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect, useCallback } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { files as filesApi } from '../services/api'
+import { files as filesApi, queue as queueApi } from '../services/api'
+
+const STATUS_LABELS = {
+  queued:     { text: 'Queued',     cls: 'bg-blue-100 text-blue-700' },
+  processing: { text: 'Processing', cls: 'bg-yellow-100 text-yellow-700' },
+  retrying:   { text: 'Retrying',   cls: 'bg-orange-100 text-orange-700' },
+  complete:   { text: 'Complete',   cls: 'bg-green-100 text-green-700' },
+  failed:     { text: 'Failed',     cls: 'bg-red-100 text-red-700' },
+  cancelled:  { text: 'Cancelled',  cls: 'bg-gray-100 text-gray-600' },
+}
+
+function useTaskPoller(taskId, onDone) {
+  useEffect(() => {
+    if (!taskId) return
+    let stopped = false
+
+    async function poll() {
+      try {
+        const { data } = await queueApi.taskStatus(taskId)
+        if (stopped) return
+        if (data.status === 'complete' || data.status === 'failed' || data.status === 'cancelled') {
+          onDone(data.status)
+          return
+        }
+        setTimeout(poll, 3000)
+      } catch {
+        if (!stopped) setTimeout(poll, 5000)
+      }
+    }
+
+    poll()
+    return () => { stopped = true }
+  }, [taskId, onDone])
+}
 
 export default function FileUpload({ projectId, files = [] }) {
   const qc      = useQueryClient()
   const fileRef = useRef()
-  const [uploading, setUploading] = useState(false)
-  const [message,   setMessage]   = useState('')
+  const [uploading,  setUploading]  = useState(false)
+  const [message,    setMessage]    = useState('')
+  const [taskId,     setTaskId]     = useState(null)
+  const [taskStatus, setTaskStatus] = useState(null)
+
+  const handleDone = useCallback(status => {
+    setTaskStatus(status)
+    setMessage(status === 'complete' ? 'Pipeline complete — PRD ready' : `Pipeline ${status}`)
+    qc.invalidateQueries(['project', projectId])
+    setTaskId(null)
+  }, [qc, projectId])
+
+  useTaskPoller(taskId, handleDone)
 
   const mutation = useMutation({
     mutationFn: file => filesApi.upload(projectId, file),
-    onSuccess: () => {
-      qc.invalidateQueries(['project', projectId])
-      setMessage('File uploaded — pipeline queued')
+    onSuccess: res => {
+      setMessage('File uploaded — processing queued')
       setUploading(false)
+      if (res.data.task_id) {
+        setTaskId(res.data.task_id)
+        setTaskStatus('queued')
+      }
+      qc.invalidateQueries(['project', projectId])
     },
     onError: err => {
       setMessage(err.response?.data?.detail || 'Upload failed')
@@ -26,8 +74,14 @@ export default function FileUpload({ projectId, files = [] }) {
     if (!file) return
     setUploading(true)
     setMessage('')
+    setTaskId(null)
+    setTaskStatus(null)
     mutation.mutate(file)
+    e.target.value = ''
   }
+
+  const pipelineLabel = taskStatus ? (STATUS_LABELS[taskStatus] || { text: taskStatus, cls: 'bg-gray-100 text-gray-600' }) : null
+  const isPolling = !!taskId
 
   return (
     <div className="space-y-6">
@@ -39,7 +93,17 @@ export default function FileUpload({ projectId, files = [] }) {
           accept=".mp3,.wav,.m4a,.ogg,.mp4,.mov,.avi,.mkv,.webm,.pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.webp" />
         <p className="text-gray-600 font-medium">{uploading ? 'Uploading…' : 'Click to upload a file'}</p>
         <p className="text-gray-400 text-sm mt-1">Audio, video, document, or image</p>
-        {message && <p className="mt-3 text-sm text-blue-600">{message}</p>}
+        {message && (
+          <div className="mt-3 flex items-center justify-center gap-2">
+            {isPolling && <span className="inline-block w-3 h-3 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />}
+            <p className="text-sm text-blue-600">{message}</p>
+          </div>
+        )}
+        {pipelineLabel && (
+          <span className={`inline-block mt-2 px-2 py-0.5 rounded text-xs font-medium ${pipelineLabel.cls}`}>
+            {pipelineLabel.text}
+          </span>
+        )}
       </div>
 
       {files.length > 0 && (

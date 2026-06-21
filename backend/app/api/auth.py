@@ -3,9 +3,10 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import hash_password, verify_password, create_access_token
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_admin
 from app.models.approval import Approval
 from app.models.comment import Comment
 from app.models.prd_version import PRDVersion
@@ -33,6 +34,8 @@ def _user_out(user: User) -> dict:
 
 @router.post("/register", status_code=201)
 async def register(body: RegisterBody, db: AsyncSession = Depends(get_db)):
+    if not settings.REGISTRATION_OPEN:
+        raise HTTPException(403, "Self-registration is disabled. Contact your workspace administrator to receive an invitation.")
     existing = (await db.execute(select(User).where(User.email == body.email))).scalar_one_or_none()
     if existing:
         raise HTTPException(400, "Email already registered")
@@ -64,6 +67,70 @@ async def login(body: LoginBody, db: AsyncSession = Depends(get_db)):
 @router.get("/me")
 async def me(current_user: User = Depends(get_current_user)):
     return _user_out(current_user)
+
+
+@router.get("/users")
+async def list_users(
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    rows = (await db.execute(select(User).order_by(User.created_at))).scalars().all()
+    return [_user_out(u) for u in rows]
+
+
+@router.post("/users", status_code=201)
+async def admin_create_user(
+    body: RegisterBody,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    existing = (await db.execute(select(User).where(User.email == body.email))).scalar_one_or_none()
+    if existing:
+        raise HTTPException(400, "Email already registered")
+    try:
+        role = UserRole(body.role)
+    except ValueError:
+        raise HTTPException(400, f"Invalid role '{body.role}'")
+    user = User(email=body.email, name=body.name, role=role, hashed_pw=hash_password(body.password))
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return _user_out(user)
+
+
+@router.patch("/users/{user_id}/role")
+async def update_user_role(
+    user_id: int,
+    body: RegisterBody,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+    if user.id == current_user.id:
+        raise HTTPException(400, "Cannot change your own role")
+    try:
+        user.role = UserRole(body.role)
+    except ValueError:
+        raise HTTPException(400, f"Invalid role '{body.role}'")
+    await db.commit()
+    return _user_out(user)
+
+
+@router.delete("/users/{user_id}", status_code=204)
+async def delete_user(
+    user_id: int,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+    if user.id == current_user.id:
+        raise HTTPException(400, "Cannot delete your own account")
+    await db.delete(user)
+    await db.commit()
 
 
 @router.get("/audit-log")

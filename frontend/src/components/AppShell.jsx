@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import useAuthStore from '../store/authStore'
 import useAppStore from '../store/appStore'
 import useProjectStore from '../store/projectStore'
+import { renderBoldText } from '../utils/renderBoldText'
 
 const ROLE_LABELS = {
   admin:  'Admin',
@@ -83,7 +84,7 @@ function NotifPanel({ onClose }) {
         {notifications.map(n => (
           <div key={n.id} className={`notif ${n.read ? '' : 'unread'}`} onClick={() => openNotif(n)}>
             <span className="nico" style={{ background: tone[n.type] || 'var(--paper)' }}>{n.icon}</span>
-            <span className="ntext" dangerouslySetInnerHTML={{ __html: n.text + `<div class="ntime">${n.time}</div>` }} />
+            <span className="ntext">{renderBoldText(n.text)}<div className="ntime">{n.time}</div></span>
           </div>
         ))}
       </div>

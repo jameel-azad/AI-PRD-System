@@ -8,6 +8,8 @@ import { STAGES, FLOW, SECTION_NAMES } from '../data/mockData'
 import { exportPrd, prd as prdApi, projects as projectsApi } from '../services/api'
 import PRDSection from '../components/PRDSection'
 import FeasibilityPanel from '../components/FeasibilityPanel'
+import DiscussionThread from '../components/DiscussionThread'
+import { renderBoldText } from '../utils/renderBoldText'
 
 const INDEX_TO_STAGE = ['intake', 'processing', 'drafted', 'gap_review', 'feasibility', 'client_review', 'approved']
 
@@ -274,7 +276,6 @@ function TabPRD({ p, navigate }) {
       </div>
       {SECTION_NAMES.map((name, i) => {
         const sc = p.sections[i]
-        const secComments = p.comments.filter(c => c.sec === i && !c.resolved).reduce((a, c) => a + c.thread.length, 0)
         const isOpen = openSecs.has(i)
 
         let body = null
@@ -510,95 +511,10 @@ function TabFeasibility({ p, navigate }) {
 
 /* ============ DISCUSSION TAB ============ */
 function TabDiscussion({ p }) {
-  const { addComment, addReply, resolveThread, userById } = useProjectStore()
-  const { showToast } = useAppStore()
-  const viewRole = useAuthStore(s => s.viewRole)
-  const isClient = viewRole === 'client'
-  const [newSec, setNewSec] = useState(0)
-  const [newText, setNewText] = useState('')
-  const [replies, setReplies] = useState({})
-
-  function postComment() {
-    if (!newText.trim()) { showToast('Write a comment first'); return }
-    const who = isClient ? 'lena' : 'priya'
-    addComment(p.id, { sec: newSec, anchor: `§${newSec+1} ${SECTION_NAMES[newSec]}`, thread: [{ user: who, text: newText, time: 'Just now' }], resolved: false })
-    addProjectActivity(p.id, { ico: '💬', c: 'green-soft', cl: 'var(--green)', txt: `<b>${isClient?'Lena Weber':'Priya K.'}</b> commented on §${newSec+1}`, time: 'Just now' })
-    showToast('Comment posted')
-    setNewText('')
-  }
-
-  function postReply(ci) {
-    const txt = (replies[ci] || '').trim()
-    if (!txt) { showToast('Write a reply first'); return }
-    const who = isClient ? 'lena' : 'priya'
-    addReply(p.id, ci, { user: who, text: txt, time: 'Just now' })
-    showToast('Reply posted')
-    setReplies(r => ({ ...r, [ci]: '' }))
-  }
-
-  function addProjectActivity(pid, entry) {
-    useProjectStore.getState().addProjectActivity(pid, entry)
-  }
-
   return (
-    <>
-      <div className="panel" style={{marginBottom:'18px'}}>
-        <div style={{padding:'16px 18px'}}>
-          <div className="field" style={{marginBottom:'10px'}}>
-            <label>Start a new comment thread</label>
-            <select value={newSec} onChange={e => setNewSec(Number(e.target.value))} style={{marginBottom:'8px',width:'100%',padding:'10px 12px',border:'1px solid var(--line)',borderRadius:'9px',background:'#0b0d14',color:'var(--ink)'}}>
-              {SECTION_NAMES.map((n, i) => <option key={i} value={i}>§{i+1} {n}</option>)}
-            </select>
-            <textarea rows="2" placeholder="Type your comment… use @name to mention someone" value={newText} onChange={e => setNewText(e.target.value)}
-              style={{width:'100%',padding:'10px 12px',border:'1px solid var(--line)',borderRadius:'9px',background:'#0b0d14',color:'var(--ink)'}} />
-          </div>
-          <button className="btn btn-primary btn-sm" onClick={postComment}>Post comment</button>
-        </div>
-      </div>
-
-      {p.comments.length === 0
-        ? <div className="panel"><div className="empty">No discussion yet. Start a thread on a section above.</div></div>
-        : p.comments.map((c, ci) => {
-          const me = isClient ? { name: 'Lena Weber', color: 'c-green', initials: 'LW', roleLabel: 'Client Reviewer', roleClass: 'client' } : { name: 'Priya K.', color: 'c-teal', initials: 'PK', roleLabel: 'BA / PM', roleClass: 'ba' }
-          return (
-            <div key={ci} className="cthread">
-              <div className="cthread-h">
-                <span className="anchor">{c.anchor}</span>
-                {c.resolved
-                  ? <span className="resolved">✓ Resolved</span>
-                  : !isClient && <button className="btn btn-ghost btn-xs" style={{marginLeft:'auto'}} onClick={() => resolveThread(p.id, ci)}>Resolve</button>
-                }
-              </div>
-              {c.thread.map((msg, mi) => {
-                const u = userById(msg.user)
-                const initials = u ? u.name.split(' ').map(x=>x[0]).join('').slice(0,2) : '?'
-                const roleClass = u?.role === 'client' ? 'client' : 'ba'
-                return (
-                  <div key={mi} className="comment">
-                    <span className={`avatar sm ${u?.color||'c-teal'}`}>{initials}</span>
-                    <div className="cbody">
-                      <div className="cmeta">
-                        <span className="cname">{u?.name}</span>
-                        <span className={`crole ${roleClass}`}>{u?.roleLabel}</span>
-                        <span className="ctime">{msg.time}</span>
-                      </div>
-                      <p>{msg.text.replace(/@(\w+)/g, (_, m) => `@${m}`)}</p>
-                    </div>
-                  </div>
-                )
-              })}
-              {!c.resolved && (
-                <div className="creply">
-                  <span className={`avatar sm ${me.color}`}>{me.initials}</span>
-                  <textarea rows="1" placeholder="Reply…" value={replies[ci] || ''} onChange={e => setReplies(r => ({...r, [ci]: e.target.value}))} />
-                  <button className="btn btn-primary btn-sm" onClick={() => postReply(ci)}>Reply</button>
-                </div>
-              )}
-            </div>
-          )
-        })
-      }
-    </>
+    <div className="panel" style={{ padding: '20px 18px' }}>
+      <DiscussionThread projectId={p.id} />
+    </div>
   )
 }
 
@@ -612,7 +528,7 @@ function TabActivity({ p }) {
             <div key={i} className="tl-item">
               <div className="tl-ico" style={{background:`var(--${a.c})`,color:a.cl}}>{a.ico}</div>
               <div className="tl-body">
-                <div className="tl-txt" dangerouslySetInnerHTML={{__html: a.txt}} />
+                <div className="tl-txt">{renderBoldText(a.txt)}</div>
                 <div className="tl-time">{a.time}</div>
               </div>
             </div>
@@ -640,7 +556,7 @@ export default function ProjectWorkspace() {
   if (!p) return <div style={{padding:'40px',color:'var(--ink-soft)'}}>Project not found.</div>
 
   const openCount = (p.clars || []).filter(c => c.state === 'open').length
-  const cCount = p.comments.reduce((a, t) => a + (t.resolved ? 0 : t.thread.length), 0)
+  const cCount = 0  // real comment count fetched inside DiscussionThread via API
 
   const TABS = isClient
     ? [['prd','Requirements'],['discussion','Discussion',cCount],['feasibility','Feasibility']]

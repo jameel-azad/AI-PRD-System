@@ -1,7 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import useProjectStore from '../store/projectStore'
 import useAppStore from '../store/appStore'
-import useAuthStore from '../store/authStore'
 import { FeasBadge, MeterColor, AvatarStack } from '../components/Badge'
 import { STAGES } from '../data/mockData'
 
@@ -47,22 +46,18 @@ function ProjectCard({ p, onOpen }) {
   )
 }
 
+function stageIs(p, ...vals) {
+  return vals.some(v => p.stage === v || String(p.stage) === String(v))
+}
+
 export default function Dashboard() {
   const navigate = useNavigate()
-  const { projects, openClars } = useProjectStore()
+  const { projects } = useProjectStore()
   const { openModal } = useAppStore()
-  const user = useAuthStore(s => s.user)
 
-  const allOpen = openClars()
-  // Match clarification assignee against the logged-in user's first name (case-insensitive)
-  const myFirstName = user?.name?.split(' ')[0]?.toLowerCase() || ''
-  const mine = myFirstName
-    ? allOpen.filter(({ c }) => c.assignee?.toLowerCase() === myFirstName)
-    : []
-  const avgComp = projects.length
-    ? Math.round(projects.reduce((a, p) => a + (p.completeness || 0), 0) / projects.length)
-    : 0
-  const awaitingApproval = projects.filter(p => p.status === 'review').length
+  const awaitingApproval = projects.filter(p => stageIs(p, 'client_review', 5)).length
+  const gapReview        = projects.filter(p => stageIs(p, 'gap_review', 3))
+  const inProgress       = projects.filter(p => stageIs(p, 'processing', 1))
 
   function openProject(p) {
     if (p.status === 'blocked') navigate(`/projects/${p.id}/feasibility`)
@@ -99,9 +94,9 @@ export default function Dashboard() {
           <div className="d">Target ≥ 95% before approval</div>
         </button>
         <button className="stat" onClick={() => navigate('/clarifications')}>
-          <div className="k">Open clarifications</div>
-          <div className="v">{allOpen.length}</div>
-          <div className="d">{mine.length > 0 ? `${mine.length} assigned to you → answer now` : 'none assigned to you'}</div>
+          <div className="k">Needs clarification</div>
+          <div className="v">{gapReview.length}</div>
+          <div className="d">{gapReview.length > 0 ? `${gapReview.length} project${gapReview.length > 1 ? 's' : ''} in gap review` : 'no open gaps'}</div>
         </button>
         <button className="stat" onClick={() => navigate('/approvals')}>
           <div className="k">Awaiting client approval</div>
@@ -124,18 +119,17 @@ export default function Dashboard() {
         <aside>
           <div className="panel">
             <div className="panel-h">
-              <h3>My tasks</h3>
-              <span className="count">{mine.length} assigned</span>
+              <h3>Needs attention</h3>
+              <span className="count">{gapReview.length + inProgress.length} items</span>
             </div>
-            {mine.length === 0
-              ? <div className="empty">No tasks assigned to you</div>
-              : mine.slice(0, 4).map(({ p, c }, i) => (
-                <div key={i} className="q">
-                  <span className="proj">{p.client}</span>
-                  <p>{c.q}</p>
+            {gapReview.length === 0 && inProgress.length === 0
+              ? <div className="empty">All projects are on track</div>
+              : [...gapReview, ...inProgress].slice(0, 5).map(p => (
+                <div key={p.id} className="q" style={{ cursor: 'pointer' }} onClick={() => navigate(`/projects/${p.id}`)}>
+                  <span className="proj">{p.client_org || p.client || p.name}</span>
+                  <p style={{ margin: '2px 0', fontSize: '12.5px' }}>{stageIs(p, 'gap_review', 3) ? 'Gap analysis complete — clarifications needed' : 'Processing pipeline running'}</p>
                   <div className="qrow">
-                    <span className={`prio ${c.prio}`}>{c.prio}</span>
-                    <span className="src-tag" style={{ margin: 0 }}>{c.gap}</span>
+                    <span className={`prio ${stageIs(p, 'gap_review', 3) ? 'high' : 'med'}`}>{stageIs(p, 'gap_review', 3) ? 'gap review' : 'processing'}</span>
                   </div>
                 </div>
               ))

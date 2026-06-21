@@ -62,6 +62,6 @@ async def upload_file(
     await db.refresh(source_file)
 
     from app.workers.tasks import run_ai_pipeline
-    run_ai_pipeline.delay(source_file.id)
+    task = run_ai_pipeline.delay(source_file.id)
 
-    return {"id": source_file.id, "status": "queued"}
+    return {"id": source_file.id, "filename": source_file.filename, "status": "queued", "task_id": task.id}
