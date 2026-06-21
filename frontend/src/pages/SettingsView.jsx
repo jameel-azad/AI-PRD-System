@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import useAppStore from '../store/appStore'
 import { auth } from '../services/api'
+
+const SETTINGS_KEY = 'xccelera_settings'
 
 function fmtTs(iso) {
   const d = new Date(iso)
@@ -15,10 +17,17 @@ export default function SettingsView() {
     queryKey: ['audit-log'],
     queryFn: () => auth.auditLog().then(r => r.data),
   })
-  const [switches, setSwitches] = useState({
-    pii: true, recordings: true, gdpr: true, anon: false,
-    clientActions: true, gapAnalysis: true, blockers: true, deadlines: true,
+  const [switches, setSwitches] = useState(() => {
+    try {
+      const saved = localStorage.getItem(SETTINGS_KEY)
+      if (saved) return { ...{ pii: true, recordings: true, gdpr: true, anon: false, clientActions: true, gapAnalysis: true, blockers: true, deadlines: true }, ...JSON.parse(saved) }
+    } catch {}
+    return { pii: true, recordings: true, gdpr: true, anon: false, clientActions: true, gapAnalysis: true, blockers: true, deadlines: true }
   })
+
+  useEffect(() => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(switches))
+  }, [switches])
 
   function flip(key, label) {
     setSwitches(s => {

@@ -36,6 +36,9 @@ async def register(body: RegisterBody, db: AsyncSession = Depends(get_db)):
     existing = (await db.execute(select(User).where(User.email == body.email))).scalar_one_or_none()
     if existing:
         raise HTTPException(400, "Email already registered")
+    # Admin accounts cannot be created via public registration
+    if body.role == "admin":
+        raise HTTPException(403, "Admin accounts cannot be self-registered. Contact your system administrator.")
     try:
         role = UserRole(body.role)
     except ValueError:

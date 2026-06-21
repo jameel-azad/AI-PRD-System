@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.core.database import get_db
+from app.models.project import Project
 from app.models.source_file import SourceFile
 from app.models.user import User
 from app.services.storage import storage_service
@@ -31,6 +32,12 @@ async def upload_file(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    if current_user.role.value != "admin" and project.owner_id != current_user.id:
+        raise HTTPException(403, "Access denied to this project")
+
     ext = "." + file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
     file_type = _EXT_MAP.get(ext)
     if not file_type:

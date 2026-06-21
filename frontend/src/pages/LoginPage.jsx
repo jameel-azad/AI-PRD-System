@@ -199,9 +199,9 @@ export default function LoginPage() {
             <div className="field"><label>Role</label>
               <select value={suRole} onChange={e => setSuRole(e.target.value)}>
                 <option value="bapm">BA / PM — Internal</option>
-                <option value="admin">Admin — Workspace</option>
                 <option value="client">Client Reviewer</option>
               </select>
+              <div className="hint">Admin accounts are provisioned by your workspace administrator.</div>
             </div>
             <div className="field"><label>Create password</label><input type="password" required value={suPwd} onChange={e => setSuPwd(e.target.value)} placeholder="At least 8 characters" /><div className="hint">Use 8+ characters with a mix of letters and numbers.</div></div>
             <div className="field"><label>Confirm password</label><input type="password" required value={suPwd2} onChange={e => setSuPwd2(e.target.value)} placeholder="Re-enter password" /></div>

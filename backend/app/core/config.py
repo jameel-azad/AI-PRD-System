@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     # ── App URL (used in email links) ─────────────────────────────────
     APP_BASE_URL: str = "http://localhost:5173"
 
+    # ── CORS allowed origins (comma-separated) ────────────────────────
+    CORS_ORIGINS: str = "http://localhost:5173"
+
     def validate_required_keys(self) -> None:
         """Called at startup — fails fast with a clear error if keys are missing."""
         if not self.GEMINI_API_KEY:

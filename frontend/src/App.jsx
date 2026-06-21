@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import useAuthStore from './store/authStore'
 import useProjectStore from './store/projectStore'
@@ -30,6 +30,22 @@ function tokenIsValid(token) {
   }
 }
 
+function NotFound() {
+  const navigate = useNavigate()
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 24px', textAlign: 'center', gap: '16px' }}>
+      <div style={{ fontSize: '48px' }}>404</div>
+      <h3 style={{ margin: 0, fontSize: '20px' }}>Page not found</h3>
+      <p style={{ margin: 0, color: 'var(--ink-soft)', maxWidth: '380px', lineHeight: 1.6 }}>
+        The page you're looking for doesn't exist or has been moved.
+      </p>
+      <button className="btn btn-primary" onClick={() => navigate('/')} style={{ marginTop: '8px' }}>
+        Back to Dashboard
+      </button>
+    </div>
+  )
+}
+
 function PrivateRoute({ children }) {
   const token = useAuthStore(s => s.token)
   return tokenIsValid(token) ? children : <Navigate to="/login" replace />
@@ -52,7 +68,7 @@ function AuthedApp() {
         <Route path="/clients" element={<ClientsView />} />
         <Route path="/team" element={<TeamView />} />
         <Route path="/settings" element={<SettingsView />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </AppShell>
   )

@@ -5,7 +5,11 @@ import useAuthStore from '../store/authStore'
 import useAppStore from '../store/appStore'
 import { FeasBadge, MeterColor, Avatar, AvatarStack } from '../components/Badge'
 import { STAGES, FLOW, SECTION_NAMES } from '../data/mockData'
-import { exportPrd } from '../services/api'
+import { exportPrd, prd as prdApi, projects as projectsApi } from '../services/api'
+import PRDSection from '../components/PRDSection'
+import FeasibilityPanel from '../components/FeasibilityPanel'
+
+const INDEX_TO_STAGE = ['intake', 'processing', 'drafted', 'gap_review', 'feasibility', 'client_review', 'approved']
 
 /* ---- Export button ---- */
 function ExportButton({ projectId, projectName }) {
@@ -168,8 +172,33 @@ function TabOverview({ p, navigate }) {
 
 /* ============ INPUTS TAB ============ */
 function TabInputs({ p }) {
-  const { openModal } = useAppStore()
+  const { openModal, showToast } = useAppStore()
+  const { updateProject } = useProjectStore()
+  const [refreshing, setRefreshing] = useState(false)
   const fkIco = { video:'🎥', audio:'🎙', doc:'📄', email:'✉️', chat:'💬' }
+
+  async function refreshStatus() {
+    setRefreshing(true)
+    try {
+      const { data } = await projectsApi.get(p.id)
+      updateProject(p.id, proj => ({
+        ...proj,
+        inputs: (data.files || []).map(f => ({
+          name: f.filename,
+          kind: f.file_type,
+          size: '—',
+          stat: f.status === 'complete' ? 'done' : f.status === 'processing' ? 'proc' : 'queue',
+          prog: f.status === 'complete' ? 100 : 0,
+          meta: f.status,
+        })),
+      }))
+      showToast('File statuses refreshed')
+    } catch {
+      showToast('Could not refresh — backend may be unavailable', 'error')
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   return (
     <>
@@ -189,20 +218,30 @@ function TabInputs({ p }) {
         </div>
       </div>
       <div className="panel" style={{marginTop:'18px'}}>
-        <div className="panel-h"><h3>Source files</h3><span className="count" style={{background:'var(--accent-soft)',color:'var(--accent)'}}>{p.inputs.length}</span></div>
-        {p.inputs.map((f, i) => (
-          <div key={i} className="filerow">
-            <div className="fr-ico">{fkIco[f.kind] || '📄'}</div>
-            <div className="fr-body">
-              <b>{f.name}</b>
-              <div className="fr-meta"><span>{f.size}</span> · <span>{f.meta}</span></div>
-              {f.stat === 'proc' && <div className="fr-prog"><i style={{width:`${f.prog}%`}} /></div>}
+        <div className="panel-h">
+          <h3>Source files</h3>
+          <span className="count" style={{background:'var(--accent-soft)',color:'var(--accent)'}}>{p.inputs.length}</span>
+          <span className="spacer" />
+          <button className="btn btn-ghost btn-sm" onClick={refreshStatus} disabled={refreshing}>
+            {refreshing ? 'Refreshing…' : '↻ Refresh status'}
+          </button>
+        </div>
+        {p.inputs.length === 0
+          ? <div className="empty">No files yet — upload source files above to start the pipeline.</div>
+          : p.inputs.map((f, i) => (
+            <div key={i} className="filerow">
+              <div className="fr-ico">{fkIco[f.kind] || '📄'}</div>
+              <div className="fr-body">
+                <b>{f.name}</b>
+                <div className="fr-meta"><span>{f.size}</span> · <span>{f.meta}</span></div>
+                {f.stat === 'proc' && <div className="fr-prog"><i style={{width:`${f.prog}%`}} /></div>}
+              </div>
+              <div className={`fr-stat ${f.stat==='done'?'done':f.stat==='proc'?'proc':f.stat==='err'?'err':'queue'}`}>
+                {f.stat==='done'?'Indexed':f.stat==='proc'?'Processing':f.stat==='err'?'Error':'Queued'}
+              </div>
             </div>
-            <div className={`fr-stat ${f.stat==='done'?'done':f.stat==='proc'?'proc':f.stat==='err'?'err':'queue'}`}>
-              {f.stat==='done'?'Indexed':f.stat==='proc'?'Processing':f.stat==='err'?'Error':'Queued'}
-            </div>
-          </div>
-        ))}
+          ))
+        }
       </div>
       <p style={{marginTop:'14px',fontSize:'12.5px',color:'var(--ink-soft)'}}>Every requirement in the PRD links back to a timestamped position in one of these files — that's how source citations are generated.</p>
     </>
@@ -592,6 +631,7 @@ export default function ProjectWorkspace() {
   const { updateProject, addProjectActivity } = useProjectStore()
   const { showToast, openModal, busyToast } = useAppStore()
   const viewRole = useAuthStore(s => s.viewRole)
+  const user = useAuthStore(s => s.user)
   const isClient = viewRole === 'client'
 
   const p = projects.find(x => String(x.id) === String(id))
@@ -608,32 +648,36 @@ export default function ProjectWorkspace() {
 
   function goTab(t) { navigate(`/projects/${p.id}/${t}`) }
 
-  function submitApproval() {
+  async function submitApproval() {
     if (p.feas === 'red' && p.status === 'blocked') { showToast('Red blocker unresolved — admin override required before submission'); return }
-    updateProject(p.id, proj => ({ ...proj, status: 'review', statusLabel: 'In client review', stage: Math.max(proj.stage, 5) }))
-    addProjectActivity(p.id, { ico: '📄', c: 'accent-soft', cl: 'var(--accent)', txt: 'Submitted PRD for client approval', time: 'Just now' })
-    showToast(`PRD sent to ${p.approver} for approval`)
+    try {
+      await projectsApi.updateStage(p.id, 'client_review')
+      updateProject(p.id, proj => ({ ...proj, status: 'review', statusLabel: 'In client review', stage: 5 }))
+      addProjectActivity(p.id, { ico: '📄', c: 'accent-soft', cl: 'var(--accent)', txt: 'Submitted PRD for client approval', time: 'Just now' })
+      showToast('PRD submitted for client approval')
+    } catch (err) {
+      showToast(err.response?.data?.detail || 'Failed to submit for approval', 'error')
+    }
   }
 
   function runFeasibility() {
-    busyToast('Feasibility agent running — sanctions, geopolitical, regulatory, live web search…')
-    setTimeout(() => {
-      updateProject(p.id, proj => ({ ...proj, stage: Math.max(proj.stage, 4) }))
-      addProjectActivity(p.id, { ico: '⚖', c: 'amber-soft', cl: 'var(--amber)', txt: 'Feasibility agent re-ran — report refreshed', time: 'Just now' })
-      showToast(`Feasibility report ready · ${(p.feas||'green').toUpperCase()}`)
-      navigate(`/projects/${p.id}/feasibility`)
-    }, 1700)
+    navigate(`/projects/${p.id}/feasibility`)
   }
 
-  function clientApprove() {
-    updateProject(p.id, proj => ({ ...proj, status: 'approved', statusLabel: 'Approved · v1.0 locked', stage: 6, completeness: Math.max(proj.completeness, 96) }))
-    addProjectActivity(p.id, { ico: '✅', c: 'green-soft', cl: 'var(--green)', txt: '<b>Lena Weber</b> approved the PRD — locked', time: 'Just now' })
-    showToast('PRD approved & locked. Versioned PDF generated.')
+  async function clientApprove() {
+    try {
+      await prdApi.approve(p.id, { comment: 'Approved via client portal' })
+      updateProject(p.id, proj => ({ ...proj, status: 'approved', statusLabel: 'Approved · v1.0 locked', stage: 6, completeness: Math.max(proj.completeness, 96) }))
+      addProjectActivity(p.id, { ico: '✅', c: 'green-soft', cl: 'var(--green)', txt: `<b>${user?.name || 'Client'}</b> approved the PRD — locked`, time: 'Just now' })
+      showToast('PRD approved & locked.')
+    } catch (err) {
+      showToast(err.response?.data?.detail || 'Approval failed', 'error')
+    }
   }
 
   function clientRequestChanges() {
     updateProject(p.id, proj => ({ ...proj, statusLabel: 'Changes requested by client' }))
-    addProjectActivity(p.id, { ico: '✍', c: 'amber-soft', cl: 'var(--amber)', txt: '<b>Lena Weber</b> requested changes', time: 'Just now' })
+    addProjectActivity(p.id, { ico: '✍', c: 'amber-soft', cl: 'var(--amber)', txt: `<b>${user?.name || 'Client'}</b> requested changes`, time: 'Just now' })
     showToast('Change request sent to the Xccelera team')
   }
 
@@ -704,8 +748,8 @@ export default function ProjectWorkspace() {
 
       {tab === 'overview'    && <TabOverview p={p} navigate={navigate} />}
       {tab === 'inputs'      && <TabInputs p={p} />}
-      {tab === 'prd'         && <TabPRD p={p} navigate={navigate} />}
-      {tab === 'feasibility' && <TabFeasibility p={p} navigate={navigate} />}
+      {tab === 'prd'         && <PRDSection projectId={p.id} />}
+      {tab === 'feasibility' && <FeasibilityPanel projectId={p.id} project={p} />}
       {tab === 'discussion'  && <TabDiscussion p={p} />}
       {tab === 'activity'    && <TabActivity p={p} />}
     </>

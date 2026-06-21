@@ -90,12 +90,16 @@ const useProjectStore = create((set, get) => ({
       // Real API succeeded — notifications start empty (real events will push in over time)
       useAppStore.getState().clearNotifications()
     } catch {
-      // API unreachable — fall back to demo data so the UI works without a backend.
+      // API unreachable — fall back to demo data so the UI still renders.
       set({
         projects: JSON.parse(JSON.stringify(INITIAL_PROJECTS)),
         users: JSON.parse(JSON.stringify(USERS)),
       })
       useAppStore.getState().loadDemoNotifications()
+      useAppStore.getState().showToast(
+        'Backend unreachable — showing demo data. Real data will appear when the API is available.',
+        'offline mode'
+      )
     }
   },
 

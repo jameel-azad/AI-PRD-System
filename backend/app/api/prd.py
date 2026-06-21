@@ -5,12 +5,12 @@ from pydantic import BaseModel
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_role
 from app.core.database import get_db
 from app.models.approval import Approval
 from app.models.project import Project, ProjectStage
 from app.models.prd_version import PRDVersion
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.services import email as email_service
 
 router = APIRouter()
@@ -60,7 +60,7 @@ async def get_prd(
 async def approve_prd(
     project_id: int,
     body: ApproveBody,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role(UserRole.admin, UserRole.client)),
     db: AsyncSession = Depends(get_db),
 ):
     project = await db.get(Project, project_id)

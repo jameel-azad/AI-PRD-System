@@ -1,7 +1,7 @@
 import axios from 'axios'
 import useAuthStore from '../store/authStore'
 
-const api = axios.create({ baseURL: '/api/v1' })
+const api = axios.create({ baseURL: (import.meta.env.VITE_API_URL ?? '') + '/api/v1' })
 
 api.interceptors.request.use(config => {
   const token = useAuthStore.getState().token
@@ -12,7 +12,12 @@ api.interceptors.request.use(config => {
 api.interceptors.response.use(
   res => res,
   err => {
-    if (err.response?.status === 401) useAuthStore.getState().logout()
+    if (err.response?.status === 401) {
+      useAuthStore.getState().logout()
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login'
+      }
+    }
     return Promise.reject(err)
   }
 )

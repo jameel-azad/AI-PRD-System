@@ -3,13 +3,13 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_role, require_admin
 from app.core.database import get_db
 from app.models.comment import Comment
 from app.models.project import Project, ProjectStage
 from app.models.requirement import Requirement
 from app.models.source_file import SourceFile
-from app.models.user import User
+from app.models.user import User, UserRole
 
 router = APIRouter()
 
@@ -46,7 +46,7 @@ async def list_projects(
 @router.post("/", status_code=201)
 async def create_project(
     body: ProjectCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role(UserRole.admin, UserRole.ba_pm)),
     db: AsyncSession = Depends(get_db),
 ):
     project = Project(name=body.name, client_org=body.client_org, owner_id=current_user.id)
@@ -90,7 +90,7 @@ async def get_project(
 async def update_stage(
     project_id: int,
     body: StageUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role(UserRole.admin, UserRole.ba_pm)),
     db: AsyncSession = Depends(get_db),
 ):
     project = await db.get(Project, project_id)
@@ -104,6 +104,19 @@ async def update_stage(
         raise HTTPException(400, f"Invalid stage '{body.stage}'")
     await db.commit()
     return {"id": project.id, "stage": project.stage}
+
+
+@router.delete("/{project_id}", status_code=204)
+async def delete_project(
+    project_id: int,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    await db.delete(project)
+    await db.commit()
 
 
 @router.get("/{project_id}/comments")

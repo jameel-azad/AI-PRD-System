@@ -24,7 +24,7 @@ const NAV_BAPM = [
   { path: '/approvals',       label: 'Approvals',        icon: 'check'     },
   { grp: 'Manage' },
   { path: '/clients',         label: 'Clients',          icon: 'users'     },
-  { path: '/team',            label: 'Team & roles',     icon: 'team'      },
+  { path: '/team',            label: 'Team & roles',     icon: 'team',     adminOnly: true },
   { path: '/settings',        label: 'Settings',         icon: 'settings'  },
 ]
 
@@ -191,6 +191,7 @@ export default function AppShell({ children }) {
         <nav>
           {navItems.map((item, i) => {
             if (item.grp) return <div key={i} className="nav-label">{item.grp}</div>
+            if (item.adminOnly && user?.role !== 'admin') return null
             const count = item.countKey === 'clars' ? openClarCount : 0
             return (
               <button key={item.path} className={`nav-item ${isActive(item.path) ? 'active' : ''}`} onClick={() => navigate(item.path)}>
