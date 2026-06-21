@@ -55,6 +55,7 @@ export default function FileUpload({ projectId, files = [] }) {
   const qc      = useQueryClient()
   const fileRef = useRef()
   const [uploading,  setUploading]  = useState(false)
+  const [uploadPct,  setUploadPct]  = useState(0)
   const [message,    setMessage]    = useState('')
   const [taskId,     setTaskId]     = useState(null)
   const [taskStatus, setTaskStatus] = useState(null)
@@ -69,10 +70,11 @@ export default function FileUpload({ projectId, files = [] }) {
   useTaskPoller(taskId, handleDone)
 
   const mutation = useMutation({
-    mutationFn: file => filesApi.upload(projectId, file),
+    mutationFn: ({ file, onProgress }) => filesApi.upload(projectId, file, onProgress),
     onSuccess: res => {
       setMessage('File uploaded — processing queued')
       setUploading(false)
+      setUploadPct(0)
       if (res.data.task_id) {
         setTaskId(res.data.task_id)
         setTaskStatus('queued')
@@ -82,6 +84,7 @@ export default function FileUpload({ projectId, files = [] }) {
     onError: err => {
       setMessage(err.response?.data?.detail || 'Upload failed')
       setUploading(false)
+      setUploadPct(0)
     },
   })
 
@@ -95,10 +98,11 @@ export default function FileUpload({ projectId, files = [] }) {
       return
     }
     setUploading(true)
+    setUploadPct(0)
     setMessage('')
     setTaskId(null)
     setTaskStatus(null)
-    mutation.mutate(file)
+    mutation.mutate({ file, onProgress: pct => setUploadPct(pct) })
     e.target.value = ''
   }
 
@@ -108,20 +112,30 @@ export default function FileUpload({ projectId, files = [] }) {
   return (
     <div className="space-y-6">
       <div
-        onClick={() => fileRef.current?.click()}
+        onClick={() => !uploading && fileRef.current?.click()}
         className="border-2 border-dashed border-gray-300 rounded-xl p-12 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors"
+        style={uploading ? { cursor: 'default', opacity: 0.8 } : {}}
       >
-        <input ref={fileRef} type="file" className="hidden" onChange={handleFiles}
+        <input ref={fileRef} type="file" className="hidden" onChange={handleFiles} disabled={uploading}
           accept=".mp3,.wav,.m4a,.ogg,.mp4,.mov,.avi,.mkv,.webm,.pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.webp" />
-        <p className="text-gray-600 font-medium">{uploading ? 'Uploading…' : 'Click to upload a file'}</p>
+        <p className="text-gray-600 font-medium">
+          {uploading ? (uploadPct < 100 ? `Uploading — ${uploadPct}%` : 'Processing…') : 'Click to upload a file'}
+        </p>
         <p className="text-gray-400 text-sm mt-1">Audio, video, document, or image</p>
-        {message && (
+        {uploading && (
+          <div className="mt-3 mx-auto" style={{ maxWidth: '240px' }}>
+            <div style={{ height: '4px', background: '#E5E7EB', borderRadius: '2px', overflow: 'hidden' }}>
+              <div style={{ height: '100%', background: '#3B82F6', borderRadius: '2px', width: `${uploadPct}%`, transition: 'width 0.15s ease' }} />
+            </div>
+          </div>
+        )}
+        {message && !uploading && (
           <div className="mt-3 flex items-center justify-center gap-2">
             {isPolling && <span className="inline-block w-3 h-3 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />}
             <p className="text-sm text-blue-600">{message}</p>
           </div>
         )}
-        {pipelineLabel && (
+        {pipelineLabel && !uploading && (
           <span className={`inline-block mt-2 px-2 py-0.5 rounded text-xs font-medium ${pipelineLabel.cls}`}>
             {pipelineLabel.text}
           </span>

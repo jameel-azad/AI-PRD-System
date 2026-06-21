@@ -39,6 +39,7 @@ export const auth = {
   createUser:      data          => api.post('/auth/users', data),
   updateUserRole:  (id, role)    => api.patch(`/auth/users/${id}/role`, { role }),
   deleteUser:      id            => api.delete(`/auth/users/${id}`),
+  generateInvite:  role          => api.post('/auth/invite', { role }),
 }
 
 export const projects = {
@@ -50,13 +51,18 @@ export const projects = {
   addComment:     (id, data)            => api.post(`/projects/${id}/comments`, data),
   resolveComment: (projectId, commentId) => api.patch(`/projects/${projectId}/comments/${commentId}/resolve`),
   answerGap:      (projectId, gapKey, answer) => api.patch(`/projects/${projectId}/gaps/answer`, { gap_key: gapKey, answer }),
+  activity:       projectId => api.get(`/projects/${projectId}/activity`),
 }
 
 export const files = {
-  upload: (projectId, file) => {
+  upload: (projectId, file, onProgress) => {
     const form = new FormData()
     form.append('file', file)
-    return api.post(`/files/${projectId}/upload`, form)
+    return api.post(`/files/${projectId}/upload`, form, {
+      onUploadProgress: e => {
+        if (onProgress && e.total) onProgress(Math.round(e.loaded / e.total * 100))
+      },
+    })
   },
   delete: fileId => api.delete(`/files/${fileId}`),
 }

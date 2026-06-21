@@ -41,6 +41,7 @@ export default function ModalHost() {
 
 function NewProjectModal({ closeModal, showToast, addProject }) {
   const [deploy, setDeploy] = useState('SaaS')
+  const [creating, setCreating] = useState(false)
   const nameRef = useRef()
   const clientRef = useRef()
   const approverRef = useRef()
@@ -57,6 +58,7 @@ function NewProjectModal({ closeModal, showToast, addProject }) {
     const l1 = lang1Ref.current?.value || 'English'
     const l2 = lang2Ref.current?.value || ''
     const langs = l2 ? `${l1.slice(0,2).toUpperCase()} + ${l2.slice(0,2).toUpperCase()}` : l1.slice(0,2).toUpperCase()
+    setCreating(true)
     try {
       const { data } = await projectsApi.create({ name, client_org: client })
       addProject({
@@ -74,6 +76,7 @@ function NewProjectModal({ closeModal, showToast, addProject }) {
       showToast(`Project "${name}" created`)
     } catch (err) {
       showToast(err.response?.data?.detail || 'Failed to create project', 'error')
+      setCreating(false)
     }
   }
 
@@ -117,8 +120,8 @@ function NewProjectModal({ closeModal, showToast, addProject }) {
         </div>
       </div>
       <div className="modal-f">
-        <button className="btn btn-ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn btn-primary" onClick={create}>Create project</button>
+        <button className="btn btn-ghost" onClick={closeModal} disabled={creating}>Cancel</button>
+        <button className="btn btn-primary" onClick={create} disabled={creating}>{creating ? 'Creating…' : 'Create project'}</button>
       </div>
     </div>
   )
@@ -208,6 +211,8 @@ function UploadModal({ closeModal, showToast, projects, param }) {
   const [kind, setKind] = useState(param?.kind || 'doc')
   const [fileName, setFileName] = useState('')
   const [noteText, setNoteText] = useState('')
+  const [uploading, setUploading] = useState(false)
+  const [uploadPct, setUploadPct] = useState(0)
   const projRef = useRef()
   const fileRef = useRef()
   const { updateProject, addProjectActivity } = useProjectStore()
@@ -245,17 +250,22 @@ function UploadModal({ closeModal, showToast, projects, param }) {
     const f = fileRef.current?.files?.[0]
     if (!f) { showToast('Choose a file to upload'); return }
     const ext = f.name.split('.').pop()?.toLowerCase() || ''
+    const ALLOWED_EXTS = new Set(['mp3','wav','m4a','ogg','mp4','mov','avi','mkv','webm','pdf','docx','txt','md','png','jpg','jpeg','webp'])
+    if (!ALLOWED_EXTS.has(ext)) { showToast(`Unsupported file type: .${ext}. Allowed: audio, video, PDF, DOCX, TXT, MD, image`, 'error'); return }
     const SIZE_LIMITS_MB = { mp3:500, wav:500, m4a:500, ogg:500, mp4:1000, mov:1000, avi:1000, mkv:1000, webm:1000, pdf:50, docx:50, txt:50, md:50, png:20, jpg:20, jpeg:20, webp:20 }
     const limitMB = SIZE_LIMITS_MB[ext] ?? 500
     if (f.size > limitMB * 1_000_000) { showToast(`File too large — max ${limitMB} MB for .${ext} files`, 'error'); return }
     const nm = f.name
     const sz = (f.size / 1048576).toFixed(1) + ' MB'
+
+    setUploading(true)
+    setUploadPct(0)
     try {
-      const { data: uploadRes } = await filesApi.upload(pid, f)
+      const { data: uploadRes } = await filesApi.upload(pid, f, pct => setUploadPct(pct))
       updateProject(pid, proj => {
         const newFlowState = proj.flowState.every(s => s === 0) ? [2, ...proj.flowState.slice(1)] : proj.flowState
         const newFile = {
-          fileId: uploadRes.id,          // real backend ID — enables delete
+          fileId: uploadRes.id,
           name: uploadRes.filename || nm,
           kind,
           size: sz,
@@ -270,20 +280,22 @@ function UploadModal({ closeModal, showToast, projects, param }) {
       showToast('Input added — processing started')
     } catch (err) {
       showToast(err.response?.data?.detail || 'Upload failed', 'error')
+      setUploading(false)
+      setUploadPct(0)
     }
   }
 
   return (
     <div className="modal">
-      <div className="modal-h"><div><h3>Add input source</h3></div><button className="btn btn-ghost btn-sm" onClick={closeModal}>✕</button></div>
+      <div className="modal-h"><div><h3>Add input source</h3></div><button className="btn btn-ghost btn-sm" onClick={closeModal} disabled={uploading}>✕</button></div>
       <div className="modal-b">
         <div className="field"><label>Project</label>
-          <select ref={projRef} defaultValue={param?.projId || projects[0]?.id}>
+          <select ref={projRef} defaultValue={param?.projId || projects[0]?.id} disabled={uploading}>
             {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </div>
         <div className="field"><label>Source type</label>
-          <select value={kind} onChange={e => setKind(e.target.value)}>
+          <select value={kind} onChange={e => setKind(e.target.value)} disabled={uploading}>
             <option value="video">🎥 Video — MP4/MOV/WebM · ≤1 GB</option>
             <option value="audio">🎙 Audio — MP3/WAV/M4A · ≤500 MB</option>
             <option value="doc">📄 Document — PDF/Word/TXT · ≤50 MB</option>
@@ -296,15 +308,30 @@ function UploadModal({ closeModal, showToast, projects, param }) {
         {kind === 'text' ? (
           <div className="field"><label>Notes</label><textarea rows="3" placeholder="Type or paste requirement notes…" value={noteText} onChange={e => setNoteText(e.target.value)} /></div>
         ) : (
-          <div className="dropzone" onClick={() => fileRef.current?.click()}>
+          <div className="dropzone" onClick={() => !uploading && fileRef.current?.click()} style={uploading ? {cursor:'default',opacity:.7} : {}}>
             <div className="dz-ico">⬆</div>
             <div>{fileName ? fileName : <span>Drop a file here or <u>browse</u></span>}</div>
             <div style={{fontSize:'12px',color:'var(--ink-soft)',marginTop:'6px'}}>Files are encrypted at rest (AES-256). Raw recordings auto-deleted after processing.</div>
-            <input type="file" ref={fileRef} style={{display:'none'}} onChange={e => setFileName(e.target.files?.[0]?.name || '')} />
+            <input type="file" ref={fileRef} style={{display:'none'}} disabled={uploading} accept=".mp3,.wav,.m4a,.ogg,.mp4,.mov,.avi,.mkv,.webm,.pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.webp" onChange={e => setFileName(e.target.files?.[0]?.name || '')} />
+          </div>
+        )}
+        {uploading && (
+          <div style={{marginTop:'10px'}}>
+            <div style={{height:'4px',background:'var(--line)',borderRadius:'2px',overflow:'hidden'}}>
+              <div style={{height:'100%',background:'var(--accent)',borderRadius:'2px',width:`${uploadPct}%`,transition:'width 0.15s ease'}} />
+            </div>
+            <p style={{marginTop:'5px',fontSize:'12px',color:'var(--ink-soft)',textAlign:'center'}}>
+              {uploadPct < 100 ? `Uploading — ${uploadPct}%` : 'Processing…'}
+            </p>
           </div>
         )}
       </div>
-      <div className="modal-f"><button className="btn btn-ghost" onClick={closeModal}>Cancel</button><button className="btn btn-primary" onClick={doUpload}>Add &amp; process</button></div>
+      <div className="modal-f">
+        <button className="btn btn-ghost" onClick={closeModal} disabled={uploading}>Cancel</button>
+        <button className="btn btn-primary" onClick={doUpload} disabled={uploading}>
+          {uploading ? `${uploadPct < 100 ? `${uploadPct}% uploaded` : 'Processing…'}` : 'Add & process'}
+        </button>
+      </div>
     </div>
   )
 }

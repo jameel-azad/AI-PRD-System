@@ -1,9 +1,12 @@
-import { useState, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import useProjectStore from '../store/projectStore'
+import { apiProjectToStore } from '../store/projectStore'
 import useAppStore from '../store/appStore'
+import { projects as projectsApi } from '../services/api'
 import { FeasBadge, MeterColor, AvatarStack } from '../components/Badge'
-import { STAGES } from '../data/mockData'
+import { STAGES, STAGE_BADGE } from '../data/mockData'
 
 const STAGE_OPTIONS = [
   { value: '', label: 'All stages' },
@@ -16,10 +19,6 @@ const STAGE_OPTIONS = [
   { value: 'approved', label: 'Approved' },
 ]
 
-const STAGE_TO_INDEX = {
-  intake: 0, processing: 1, drafted: 2,
-  gap_review: 3, feasibility: 4, client_review: 5, approved: 6,
-}
 
 export default function ProjectsView() {
   const navigate = useNavigate()
@@ -28,6 +27,12 @@ export default function ProjectsView() {
   const [search, setSearch] = useState('')
   const [stageFilter, setStageFilter] = useState('')
   const [loadingMore, setLoadingMore] = useState(false)
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search), 350)
+    return () => clearTimeout(id)
+  }, [search])
 
   async function handleLoadMore() {
     setLoadingMore(true)
@@ -35,22 +40,20 @@ export default function ProjectsView() {
     setLoadingMore(false)
   }
 
-  const filtered = useMemo(() => {
-    let list = projects
-    if (search.trim()) {
-      const q = search.trim().toLowerCase()
-      list = list.filter(p =>
-        (p.name || '').toLowerCase().includes(q) ||
-        (p.client || '').toLowerCase().includes(q) ||
-        (p.client_org || '').toLowerCase().includes(q)
-      )
-    }
-    if (stageFilter) {
-      const idx = STAGE_TO_INDEX[stageFilter]
-      list = list.filter(p => String(p.stage) === String(idx) || p.stage === stageFilter)
-    }
-    return list
-  }, [projects, search, stageFilter])
+  const isFiltering = !!(debouncedSearch.trim() || stageFilter)
+
+  const { data: searchResults, isFetching: isSearching } = useQuery({
+    queryKey: ['projects-search', debouncedSearch, stageFilter],
+    queryFn: () => projectsApi.list({
+      q: debouncedSearch.trim() || undefined,
+      stage: stageFilter || undefined,
+      limit: 100,
+    }).then(r => r.data.map(apiProjectToStore)),
+    enabled: isFiltering,
+    staleTime: 15_000,
+  })
+
+  const filtered = isFiltering ? (searchResults || []) : projects
 
   if (loading) {
     return (
@@ -100,7 +103,7 @@ export default function ProjectsView() {
           </button>
         )}
         <span style={{ marginLeft: 'auto', fontSize: '12.5px', color: 'var(--ink-soft)' }}>
-          {filtered.length} of {projects.length} project{projects.length !== 1 ? 's' : ''}
+          {isSearching ? 'Searching…' : `${filtered.length}${isFiltering ? '' : ` of ${projects.length}`} project${filtered.length !== 1 ? 's' : ''}`}
         </span>
       </div>
 
@@ -128,7 +131,7 @@ export default function ProjectsView() {
                     </td>
                     <td>{p.client}<br /><span style={{ fontSize: '11.5px', color: 'var(--ink-soft)' }}>{p.country}</span></td>
                     <td>
-                      <span className={`badge ${p.stage >= 6 ? 'green' : p.status === 'blocked' ? 'red' : 'gray'}`}>
+                      <span className={`badge ${p.status === 'blocked' ? 'red' : (STAGE_BADGE[p.stage] ?? 'gray')}`}>
                         <span className="dot" />{STAGES[p.stage] || p.statusLabel}
                       </span>
                     </td>
@@ -153,7 +156,7 @@ export default function ProjectsView() {
           </table>
         </div>
       )}
-      {hasMore && !search && !stageFilter && (
+      {hasMore && !isFiltering && (
         <div style={{ textAlign: 'center', marginTop: '16px' }}>
           <button className="btn btn-ghost" onClick={handleLoadMore} disabled={loadingMore}>
             {loadingMore ? 'Loading…' : 'Load more projects'}

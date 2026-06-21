@@ -12,6 +12,7 @@ app.conf.task_routes = {
     "workers.tasks.extract_requirements": {"queue": "extraction"},
     "workers.tasks.generate_prd": {"queue": "prd"},
     "workers.tasks.check_and_generate_prd": {"queue": "prd"},
+    "run_ai_pipeline": {"queue": "prd"},
 }
 
 app.conf.update(
@@ -20,4 +21,5 @@ app.conf.update(
     accept_content=["json"],
     timezone="UTC",
     enable_utc=True,
+    broker_connection_retry_on_startup=True,
 )

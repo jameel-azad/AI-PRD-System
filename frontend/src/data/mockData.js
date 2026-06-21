@@ -7,6 +7,8 @@ export const SECTION_NAMES = [
 ]
 
 export const STAGES = ['Intake','Processing','Drafted','Gap review','Feasibility','Client review','Approved']
+// Badge CSS class per stage index — aligns with the backend ProjectStage enum order
+export const STAGE_BADGE = ['gray','blue','gray','amber','blue','blue','green']
 
 export const FLOW = [
   ['📥','Raw input ingestion','Files uploaded & stored (AES-256)'],

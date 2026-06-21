@@ -12,9 +12,8 @@ const STAGE_LABELS = {
 
 export default function ApprovalsView() {
   const navigate = useNavigate()
-  const { projects, updateProject, addProjectActivity } = useProjectStore()
+  const { projects, initFromApi } = useProjectStore()
   const { showToast } = useAppStore()
-  const user = useAuthStore(s => s.user)
   const viewRole = useAuthStore(s => s.viewRole)
 
   // Show projects that are in client_review or approved stage
@@ -33,9 +32,8 @@ export default function ApprovalsView() {
   async function handleApprove(p) {
     try {
       await prdApi.approve(p.id, { comment: 'Approved via approvals portal' })
-      updateProject(p.id, proj => ({ ...proj, status: 'approved', statusLabel: 'Approved · v1.0 locked', stage: 6 }))
-      addProjectActivity(p.id, { ico: '✅', c: 'green-soft', cl: 'var(--green)', txt: `<b>${user?.name || 'Approver'}</b> approved the PRD`, time: 'Just now' })
       showToast(`PRD approved for ${p.name}`)
+      await initFromApi()
     } catch (err) {
       showToast(err.response?.data?.detail || 'Approval failed — check your role permissions', 'error')
     }
@@ -44,9 +42,8 @@ export default function ApprovalsView() {
   async function handleWithdraw(p) {
     try {
       await projectsApi.updateStage(p.id, 'feasibility')
-      updateProject(p.id, proj => ({ ...proj, status: 'draft', statusLabel: 'Draft · withdrawn from review', stage: 4 }))
-      addProjectActivity(p.id, { ico: '↩', c: 'amber-soft', cl: 'var(--amber)', txt: 'PRD withdrawn from client review', time: 'Just now' })
       showToast('PRD withdrawn from client review')
+      await initFromApi()
     } catch (err) {
       showToast(err.response?.data?.detail || 'Withdrawal failed', 'error')
     }

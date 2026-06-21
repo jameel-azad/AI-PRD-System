@@ -62,11 +62,75 @@ function InviteForm({ onClose }) {
   )
 }
 
+function InviteLinkModal({ onClose }) {
+  const { showToast } = useAppStore()
+  const [role, setRole] = useState('ba_pm')
+  const [link, setLink] = useState(null)
+  const [loading, setLoading] = useState(false)
+
+  async function generate() {
+    setLoading(true)
+    try {
+      const { data } = await authApi.generateInvite(role)
+      setLink(data.url)
+    } catch (err) {
+      showToast(err.response?.data?.detail || 'Failed to generate invite link', 'error')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function copyLink() {
+    navigator.clipboard.writeText(link)
+    showToast('Invite link copied to clipboard')
+  }
+
+  return (
+    <div className="modal" onClick={e => e.stopPropagation()}>
+      <div className="modal-h"><h3>Generate invite link</h3></div>
+      <div className="modal-b">
+        {!link ? (
+          <>
+            <p style={{ margin: '0 0 14px', color: 'var(--ink-soft)', fontSize: '13px' }}>
+              Generate a single-use invite link (valid 72 hours). The recipient can self-register with the selected role.
+            </p>
+            <div className="field">
+              <label>Role</label>
+              <select value={role} onChange={e => setRole(e.target.value)}
+                style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--line)', borderRadius: '9px', background: 'var(--paper)', color: 'var(--ink)' }}>
+                <option value="ba_pm">BA / PM</option>
+                <option value="client">Client Reviewer</option>
+              </select>
+            </div>
+          </>
+        ) : (
+          <>
+            <p style={{ margin: '0 0 10px', color: 'var(--ink-soft)', fontSize: '13px' }}>
+              Share this link. It expires in 72 hours and can only be used once.
+            </p>
+            <div style={{ background: 'var(--paper)', border: '1px solid var(--line)', borderRadius: '9px', padding: '10px 12px', fontFamily: 'var(--mono)', fontSize: '11px', wordBreak: 'break-all', color: 'var(--ink)' }}>
+              {link}
+            </div>
+          </>
+        )}
+      </div>
+      <div className="modal-f">
+        <button className="btn btn-ghost" onClick={onClose}>Close</button>
+        {!link
+          ? <button className="btn btn-primary" disabled={loading} onClick={generate}>{loading ? 'Generating…' : 'Generate link'}</button>
+          : <button className="btn btn-primary" onClick={copyLink}>Copy link</button>
+        }
+      </div>
+    </div>
+  )
+}
+
 export default function TeamView() {
   const currentUser = useAuthStore(s => s.user)
   const { showToast } = useAppStore()
   const qc = useQueryClient()
   const [inviting, setInviting] = useState(false)
+  const [generatingLink, setGeneratingLink] = useState(false)
 
   const { data: users = [], isLoading, error } = useQuery({
     queryKey: ['team-users'],
@@ -98,12 +162,22 @@ export default function TeamView() {
           <InviteForm onClose={() => setInviting(false)} />
         </div>
       )}
+      {generatingLink && (
+        <div className="overlay" onClick={() => setGeneratingLink(false)}>
+          <InviteLinkModal onClose={() => setGeneratingLink(false)} />
+        </div>
+      )}
 
       <div className="section-head">
         <h3>Members ({users.length})</h3>
-        <button className="btn btn-primary btn-sm" style={{ color: '#fff', background: 'var(--accent)' }} onClick={() => setInviting(true)}>
-          + Add member
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => setGeneratingLink(true)}>
+            🔗 Invite link
+          </button>
+          <button className="btn btn-primary btn-sm" style={{ color: '#fff', background: 'var(--accent)' }} onClick={() => setInviting(true)}>
+            + Add member
+          </button>
+        </div>
       </div>
 
       <div className="panel">

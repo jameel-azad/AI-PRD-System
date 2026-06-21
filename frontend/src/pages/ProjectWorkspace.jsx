@@ -1,10 +1,11 @@
 import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useParams, useNavigate } from 'react-router-dom'
 import useProjectStore from '../store/projectStore'
 import useAuthStore from '../store/authStore'
 import useAppStore from '../store/appStore'
 import { FeasBadge, MeterColor, Avatar, AvatarStack } from '../components/Badge'
-import { STAGES, FLOW, SECTION_NAMES } from '../data/mockData'
+import { STAGES, STAGE_BADGE, FLOW, SECTION_NAMES } from '../data/mockData'
 import { exportPrd, files as filesApi, prd as prdApi, projects as projectsApi, queue as queueApi } from '../services/api'
 import PRDSection from '../components/PRDSection'
 import FeasibilityPanel from '../components/FeasibilityPanel'
@@ -105,6 +106,21 @@ function feasActionsFor(p) {
 /* ============ OVERVIEW TAB ============ */
 function TabOverview({ p, navigate }) {
   const { userById } = useProjectStore()
+  const { showToast } = useAppStore()
+  const [triggering, setTriggering] = useState(false)
+
+  async function triggerPipeline() {
+    setTriggering(true)
+    try {
+      const { data } = await queueApi.reprocess(p.id)
+      const count = data.queued?.length ?? 0
+      showToast(count > 0 ? `Processing queued for ${count} file${count !== 1 ? 's' : ''} — PRD will regenerate shortly` : 'Pipeline triggered — PRD generation queued')
+    } catch {
+      showToast('Could not trigger pipeline — backend may be unavailable', 'error')
+    } finally {
+      setTriggering(false)
+    }
+  }
 
   const stepper = (
     <div className="stepper">
@@ -123,7 +139,14 @@ function TabOverview({ p, navigate }) {
 
   const flow = (
     <div className="panel" style={{marginBottom:'18px'}}>
-      <div className="panel-h"><h3>AI processing pipeline</h3><span className="count" style={{background:'var(--blue-soft)',color:'var(--blue)'}}>data flow</span></div>
+      <div className="panel-h">
+        <h3>AI processing pipeline</h3>
+        <span className="count" style={{background:'var(--blue-soft)',color:'var(--blue)'}}>data flow</span>
+        <span className="spacer" />
+        <button className="btn btn-primary btn-sm" onClick={triggerPipeline} disabled={triggering}>
+          {triggering ? 'Queuing…' : '⚡ Generate PRD'}
+        </button>
+      </div>
       <div className="flow">
         {FLOW.map(([ico, name, meta], i) => {
           const st = p.flowState[i]; const k = st===1?'done':st===2?'run':'wait'; const lbl = st===1?'done':st===2?'running':'queued'
@@ -148,8 +171,8 @@ function TabOverview({ p, navigate }) {
       <div className="set-grid">
         <div className="set-card">
           <h4>Inputs linked to this PRD</h4>
-          {p.inputs.slice(0, 4).map((f, i) => (
-            <div key={i} className="switchrow">
+          {p.inputs.slice(0, 4).map((f) => (
+            <div key={f.fileId ?? f.name} className="switchrow">
               <span><b>{f.name}</b><small>{f.meta}</small></span>
               <span className={`badge ${f.stat==='done'?'green':'blue'}`}><span className="dot" />{f.stat==='done'?'Indexed':'Processing'}</span>
             </div>
@@ -273,8 +296,8 @@ function TabInputs({ p }) {
         </div>
         {p.inputs.length === 0
           ? <div className="empty">No files yet — upload source files above to start the pipeline.</div>
-          : p.inputs.map((f, i) => (
-            <div key={i} className="filerow">
+          : p.inputs.map((f) => (
+            <div key={f.fileId ?? f.name} className="filerow">
               <div className="fr-ico">{fkIco[f.kind] || '📄'}</div>
               <div className="fr-body">
                 <b>{f.name}</b>
@@ -590,20 +613,33 @@ function TabDiscussion({ p }) {
 
 /* ============ ACTIVITY TAB ============ */
 function TabActivity({ p }) {
+  const { data: events, isLoading, isError } = useQuery({
+    queryKey: ['activity', p.id],
+    queryFn: () => projectsApi.activity(p.id).then(r => r.data),
+    staleTime: 30_000,
+  })
+
   return (
     <div className="panel">
       <div style={{padding:'8px 18px 14px'}}>
-        <div className="timeline">
-          {p.activity.map((a, i) => (
-            <div key={i} className="tl-item">
-              <div className="tl-ico" style={{background:`var(--${a.c})`,color:a.cl}}>{a.ico}</div>
-              <div className="tl-body">
-                <div className="tl-txt">{renderBoldText(a.txt)}</div>
-                <div className="tl-time">{a.time}</div>
+        {isLoading && <p style={{color:'var(--ink-soft)',textAlign:'center',padding:'24px 0'}}>Loading activity…</p>}
+        {isError && <p style={{color:'var(--red)',textAlign:'center',padding:'24px 0'}}>Failed to load activity</p>}
+        {events && events.length === 0 && (
+          <p style={{color:'var(--ink-soft)',textAlign:'center',padding:'24px 0'}}>No activity yet</p>
+        )}
+        {events && events.length > 0 && (
+          <div className="timeline">
+            {events.map((a, i) => (
+              <div key={i} className="tl-item">
+                <div className="tl-ico" style={{background:`var(--${a.c})`,color:a.cl}}>{a.ico}</div>
+                <div className="tl-body">
+                  <div className="tl-txt">{renderBoldText(a.txt)}</div>
+                  <div className="tl-time">{new Date(a.time).toLocaleString()}</div>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -620,6 +656,7 @@ export default function ProjectWorkspace() {
   const user = useAuthStore(s => s.user)
   const isClient = viewRole === 'client'
 
+  const [submitting, setSubmitting] = useState(false)
   const loading = useProjectStore(s => s.loading)
   const p = projects.find(x => String(x.id) === String(id))
   const tab = tabParam || 'overview'
@@ -652,6 +689,7 @@ export default function ProjectWorkspace() {
 
   async function submitApproval() {
     if (p.feas === 'red' && p.status === 'blocked') { showToast('Red blocker unresolved — admin override required before submission'); return }
+    setSubmitting(true)
     try {
       await projectsApi.updateStage(p.id, 'client_review')
       updateProject(p.id, proj => ({ ...proj, status: 'review', statusLabel: 'In client review', stage: 5 }))
@@ -659,6 +697,8 @@ export default function ProjectWorkspace() {
       showToast('PRD submitted for client approval')
     } catch (err) {
       showToast(err.response?.data?.detail || 'Failed to submit for approval', 'error')
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -667,6 +707,7 @@ export default function ProjectWorkspace() {
   }
 
   async function clientApprove() {
+    setSubmitting(true)
     try {
       await prdApi.approve(p.id, { comment: 'Approved via client portal' })
       updateProject(p.id, proj => ({ ...proj, status: 'approved', statusLabel: 'Approved · v1.0 locked', stage: 6, completeness: Math.max(proj.completeness, 96) }))
@@ -674,6 +715,8 @@ export default function ProjectWorkspace() {
       showToast('PRD approved & locked.')
     } catch (err) {
       showToast(err.response?.data?.detail || 'Approval failed', 'error')
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -690,7 +733,7 @@ export default function ProjectWorkspace() {
       {isClient && (
         <div className="banner client">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-          <span>You're reviewing as <b>Lena Weber (MedAxis)</b>. You can read the PRD, leave comments, answer open questions, and approve.</span>
+          <span>You're reviewing as <b>{user?.name || 'Client'}</b>{p?.client ? ` (${p.client})` : ''}. You can read the PRD, leave comments, answer open questions, and approve.</span>
           <span className="bspace" />
         </div>
       )}
@@ -704,7 +747,7 @@ export default function ProjectWorkspace() {
             <div className="meta">{p.client} · {p.country} · {p.industry} · {p.deploy} · Output: {p.langs}</div>
             <div style={{marginTop:'10px',display:'flex',gap:'8px',flexWrap:'wrap',alignItems:'center'}}>
               <FeasBadge score={p.feas} />
-              <span className={`badge ${p.stage>=6?'green':p.status==='blocked'?'red':'gray'}`}><span className="dot" />{STAGES[p.stage]}</span>
+              <span className={`badge ${p.status==='blocked'?'red':(STAGE_BADGE[p.stage]??'gray')}`}><span className="dot" />{STAGES[p.stage]}</span>
               {openCount > 0 && <span className="badge amber"><span className="dot" />{openCount} open questions</span>}
               <AvatarStack users={teamUsers} />
             </div>
@@ -716,8 +759,8 @@ export default function ProjectWorkspace() {
                 {p.status === 'approved'
                   ? <button className="btn btn-primary" disabled>Approved · locked</button>
                   : <>
-                      <button className="btn btn-ghost" onClick={clientRequestChanges}>Request changes</button>
-                      <button className="btn btn-primary" onClick={clientApprove}>Approve PRD</button>
+                      <button className="btn btn-ghost" disabled={submitting} onClick={clientRequestChanges}>Request changes</button>
+                      <button className="btn btn-primary" disabled={submitting} onClick={clientApprove}>{submitting ? 'Approving…' : 'Approve PRD'}</button>
                     </>
                 }
               </>
@@ -725,8 +768,8 @@ export default function ProjectWorkspace() {
               <>
                 <button className="btn btn-ghost" onClick={runFeasibility}>⚖ Run feasibility</button>
                 <ExportButton projectId={p.id} projectName={p.name} />
-                <button className="btn btn-primary" disabled={p.status==='blocked'} title={p.status==='blocked'?'Hard blocker — resolve or request Admin override':undefined} onClick={submitApproval}>
-                  {p.status === 'approved' ? 'Approved · locked' : 'Submit for approval'}
+                <button className="btn btn-primary" disabled={submitting || p.status==='blocked'} title={p.status==='blocked'?'Hard blocker — resolve or request Admin override':undefined} onClick={submitApproval}>
+                  {submitting ? 'Submitting…' : p.status === 'approved' ? 'Approved · locked' : 'Submit for approval'}
                 </button>
               </>
             )}

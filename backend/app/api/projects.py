@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user, require_role, require_admin
 from app.core.database import get_db
 from app.models.comment import Comment
+from app.models.feasibility_report import FeasibilityReport
 from app.models.project import Project, ProjectStage
 from app.models.prd_version import PRDVersion
 from app.models.requirement import Requirement
@@ -76,6 +77,22 @@ async def list_projects(
             pass  # ignore invalid stage values
     query = query.offset(offset).limit(limit)
     rows = (await db.execute(query)).scalars().all()
+
+    # Bulk-fetch latest feasibility status for all projects in one query
+    if rows:
+        project_ids = [p.id for p in rows]
+        feas_rows = (await db.execute(
+            select(FeasibilityReport.project_id, FeasibilityReport.overall_status)
+            .where(FeasibilityReport.project_id.in_(project_ids))
+            .order_by(FeasibilityReport.project_id, desc(FeasibilityReport.created_at))
+        )).all()
+        feas_map: dict[int, str] = {}
+        for row in feas_rows:
+            if row.project_id not in feas_map:
+                feas_map[row.project_id] = row.overall_status
+    else:
+        feas_map = {}
+
     result = []
     for p in rows:
         completeness = await _latest_completeness(p.id, db)
@@ -83,6 +100,7 @@ async def list_projects(
             "id": p.id, "name": p.name, "client_org": p.client_org,
             "stage": p.stage, "created_at": p.created_at,
             "completeness": completeness,
+            "feas_status": feas_map.get(p.id),
         })
     return result
 
@@ -229,3 +247,84 @@ async def resolve_comment(
     comment.resolved = True
     await db.commit()
     return {"id": comment.id, "resolved": comment.resolved}
+
+
+@router.get("/{project_id}/activity")
+async def get_project_activity(
+    project_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    if current_user.role.value != "admin" and project.owner_id != current_user.id:
+        raise HTTPException(403, "Access denied")
+
+    events = []
+
+    # Project created
+    events.append({
+        "type": "project_created",
+        "txt": f"Project **{project.name}** created",
+        "time": project.created_at.isoformat(),
+        "ico": "🗂",
+        "c": "accent",
+        "cl": "#fff",
+    })
+
+    # Source files uploaded
+    files = (await db.execute(
+        select(SourceFile).where(SourceFile.project_id == project_id)
+    )).scalars().all()
+    for f in files:
+        if f.created_at:
+            events.append({
+                "type": "file_uploaded",
+                "txt": f"File **{f.filename}** uploaded ({f.file_type})",
+                "time": f.created_at.isoformat(),
+                "ico": "📎",
+                "c": "blue-500",
+                "cl": "#fff",
+            })
+        if f.status == "complete" and f.created_at:
+            events.append({
+                "type": "file_processed",
+                "txt": f"File **{f.filename}** processed — requirements extracted",
+                "time": f.created_at.isoformat(),
+                "ico": "✅",
+                "c": "green-600",
+                "cl": "#fff",
+            })
+
+    # PRD versions generated
+    prd_versions = (await db.execute(
+        select(PRDVersion).where(PRDVersion.project_id == project_id)
+    )).scalars().all()
+    for v in prd_versions:
+        events.append({
+            "type": "prd_generated",
+            "txt": f"PRD version {v.version} generated",
+            "time": v.created_at.isoformat(),
+            "ico": "📄",
+            "c": "purple-600",
+            "cl": "#fff",
+        })
+
+    # Feasibility reports run
+    feasibility_reports = (await db.execute(
+        select(FeasibilityReport).where(FeasibilityReport.project_id == project_id)
+    )).scalars().all()
+    for r in feasibility_reports:
+        status_label = {"green": "passed", "amber": "flagged", "red": "blocked"}.get(r.overall_status, r.overall_status)
+        events.append({
+            "type": "feasibility_run",
+            "txt": f"Feasibility check {status_label} — {r.overall_status.upper()}",
+            "time": r.created_at.isoformat(),
+            "ico": "🔍",
+            "c": "orange-500",
+            "cl": "#fff",
+        })
+
+    events.sort(key=lambda e: e["time"], reverse=True)
+    return events

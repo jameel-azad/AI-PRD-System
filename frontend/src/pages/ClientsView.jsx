@@ -54,8 +54,8 @@ export default function ClientsView() {
             </tr>
           </thead>
           <tbody>
-            {clients.map((c, i) => (
-              <tr key={i}>
+            {clients.map((c) => (
+              <tr key={c.name}>
                 <td><strong>{c.name}</strong></td>
                 <td>
                   {c.country}

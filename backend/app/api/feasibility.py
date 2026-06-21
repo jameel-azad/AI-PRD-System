@@ -1,12 +1,13 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_admin
 from app.core.database import get_db
+from app.core.limiter import limiter
 from app.models.feasibility_report import FeasibilityReport
 from app.models.project import Project, ProjectStage
 from app.models.user import User
@@ -23,7 +24,9 @@ class FeasibilityRunBody(BaseModel):
 
 
 @router.post("/{project_id}/run")
+@limiter.limit("5/minute")
 async def run_feasibility(
+    request: Request,
     project_id: int,
     body: FeasibilityRunBody,
     current_user: User = Depends(get_current_user),

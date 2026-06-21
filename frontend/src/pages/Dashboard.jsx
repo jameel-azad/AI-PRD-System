@@ -1,7 +1,9 @@
 import { useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import useProjectStore from '../store/projectStore'
 import useAppStore from '../store/appStore'
 import { FeasBadge, MeterColor, AvatarStack } from '../components/Badge'
+import { auth as authApi } from '../services/api'
 import { STAGES } from '../data/mockData'
 
 function StageMini({ stage }) {
@@ -43,6 +45,46 @@ function ProjectCard({ p, onOpen }) {
         </button>
       </div>
     </article>
+  )
+}
+
+const ACTION_LABELS = {
+  CREATE_PROJECT: { ico: '🗂', label: 'Project created' },
+  COMMENT: { ico: '💬', label: 'Comment added' },
+  APPROVAL_APPROVED: { ico: '✅', label: 'PRD approved' },
+  APPROVAL_REJECTED: { ico: '↩', label: 'Approval rejected' },
+}
+
+function RecentActivity() {
+  const { data: events = [], isLoading } = useQuery({
+    queryKey: ['audit-log-dash'],
+    queryFn: () => authApi.auditLog().then(r => r.data),
+    staleTime: 60_000,
+  })
+
+  return (
+    <div className="panel" style={{ marginTop: '20px' }}>
+      <div className="panel-h"><h3>Recent activity</h3></div>
+      {isLoading && <div style={{ padding: '12px 18px', color: 'var(--ink-soft)', fontSize: '13px' }}>Loading…</div>}
+      {!isLoading && events.length === 0 && (
+        <div className="empty">No activity recorded yet.</div>
+      )}
+      {events.slice(0, 8).map((e, i) => {
+        const def = ACTION_LABELS[e.action] || { ico: '⚡', label: e.action.replace(/_/g, ' ').toLowerCase() }
+        const ts = new Date(e.ts)
+        const timeStr = isNaN(ts) ? '' : ts.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false })
+        return (
+          <div key={i} className="q" style={{ cursor: 'default' }}>
+            <span className="proj" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span>{def.ico}</span>
+              <b>{e.actor}</b>
+            </span>
+            <p style={{ margin: '2px 0', fontSize: '12.5px' }}>{def.label}{e.detail ? ` — ${e.detail}` : ''}</p>
+            <div className="qrow"><span style={{ fontSize: '11.5px', color: 'var(--ink-soft)' }}>{timeStr}</span></div>
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
@@ -139,6 +181,8 @@ export default function Dashboard() {
             }
             <button className="btn btn-ghost send" onClick={() => navigate('/clarifications')}>Open clarifications →</button>
           </div>
+
+          <RecentActivity />
 
           <div className="panel ingest" style={{ marginTop: '20px' }}>
             <div className="panel-h"><h3>Add inputs to a project</h3></div>

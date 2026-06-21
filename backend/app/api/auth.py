@@ -27,6 +27,46 @@ _RATE_WINDOW = 900  # 15 minutes in seconds
 _RESET_CODES: dict[str, tuple[str, float]] = {}
 _RESET_CODE_TTL = 600  # 10 minutes
 
+# Invite tokens: token -> (role, expires_at). Single-use, 72-hour TTL.
+_INVITE_TOKENS: dict[str, tuple[str, float]] = {}
+_INVITE_TTL = 72 * 3600
+
+# OTP brute-force protection: email -> list of failed-attempt timestamps.
+_RESET_ATTEMPTS: dict[str, list[float]] = {}
+_MAX_RESET_ATTEMPTS = 5      # lock after 5 wrong codes
+_RESET_ATTEMPT_WINDOW = 900  # 15-minute sliding window
+
+# Forgot-password request rate: email -> list of request timestamps.
+_FORGOT_REQUESTS: dict[str, list[float]] = {}
+_MAX_FORGOT_REQUESTS = 3     # max 3 reset codes per hour
+_FORGOT_REQUEST_WINDOW = 3600
+
+
+def _check_reset_attempts(email: str) -> None:
+    now = time.time()
+    cutoff = now - _RESET_ATTEMPT_WINDOW
+    recent = [t for t in _RESET_ATTEMPTS.get(email, []) if t > cutoff]
+    _RESET_ATTEMPTS[email] = recent
+    if len(recent) >= _MAX_RESET_ATTEMPTS:
+        raise HTTPException(
+            429,
+            f"Too many incorrect reset codes — account temporarily locked. "
+            f"Try again in {_RESET_ATTEMPT_WINDOW // 60} minutes or request a new code.",
+        )
+
+
+def _record_reset_failure(email: str) -> None:
+    _RESET_ATTEMPTS.setdefault(email, []).append(time.time())
+
+
+def _check_forgot_rate(email: str) -> None:
+    now = time.time()
+    cutoff = now - _FORGOT_REQUEST_WINDOW
+    recent = [t for t in _FORGOT_REQUESTS.get(email, []) if t > cutoff]
+    _FORGOT_REQUESTS[email] = recent
+    if len(recent) >= _MAX_FORGOT_REQUESTS:
+        raise HTTPException(429, "Too many reset code requests. Please wait an hour before requesting another.")
+
 
 def _check_login_rate(ip: str) -> None:
     now = time.time()
@@ -62,6 +102,7 @@ class RegisterBody(BaseModel):
     name: str
     password: str
     role: str = "ba_pm"
+    invite_token: str | None = None
 
 
 class LoginBody(BaseModel):
@@ -86,7 +127,19 @@ def _user_out(user: User) -> dict:
 @router.post("/register", status_code=201)
 async def register(body: RegisterBody, db: AsyncSession = Depends(get_db)):
     if not settings.REGISTRATION_OPEN:
-        raise HTTPException(403, "Self-registration is disabled. Contact your workspace administrator to receive an invitation.")
+        if not body.invite_token:
+            raise HTTPException(403, "Self-registration is disabled. Contact your workspace administrator for an invite link.")
+        entry = _INVITE_TOKENS.get(body.invite_token)
+        if not entry:
+            raise HTTPException(403, "Invalid or already-used invite token.")
+        token_role, expires_at = entry
+        if time.time() > expires_at:
+            _INVITE_TOKENS.pop(body.invite_token, None)
+            raise HTTPException(403, "Invite link has expired. Request a new one from your administrator.")
+        # Role is determined by the invite — registrant cannot escalate it
+        body.role = token_role
+        del _INVITE_TOKENS[body.invite_token]
+
     existing = (await db.execute(select(User).where(User.email == body.email))).scalar_one_or_none()
     if existing:
         raise HTTPException(400, "Email already registered")
@@ -138,6 +191,8 @@ async def refresh(current_user: User = Depends(get_current_user)):
 
 @router.post("/forgot-password")
 async def forgot_password(body: ForgotBody, db: AsyncSession = Depends(get_db)):
+    _check_forgot_rate(body.email)
+    _FORGOT_REQUESTS.setdefault(body.email, []).append(time.time())
     user = (await db.execute(select(User).where(User.email == body.email))).scalar_one_or_none()
     if user:
         code = f"{secrets.randbelow(900000) + 100000}"  # 6-digit
@@ -151,14 +206,19 @@ async def forgot_password(body: ForgotBody, db: AsyncSession = Depends(get_db)):
 
 @router.post("/reset-password")
 async def reset_password(body: ResetBody, db: AsyncSession = Depends(get_db)):
+    _check_reset_attempts(body.email)
+
     entry = _RESET_CODES.get(body.email)
     if not entry:
+        _record_reset_failure(body.email)
         raise HTTPException(400, "Invalid or expired reset code. Request a new one.")
     stored_code, expires_at = entry
     if time.time() > expires_at:
-        del _RESET_CODES[body.email]
+        _RESET_CODES.pop(body.email, None)
+        _record_reset_failure(body.email)
         raise HTTPException(400, "Reset code expired. Request a new one.")
     if body.code != stored_code:
+        _record_reset_failure(body.email)
         raise HTTPException(400, "Incorrect reset code.")
     if len(body.new_password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters.")
@@ -168,12 +228,34 @@ async def reset_password(body: ResetBody, db: AsyncSession = Depends(get_db)):
     user.hashed_pw = hash_password(body.new_password)
     await db.commit()
     del _RESET_CODES[body.email]
+    _RESET_ATTEMPTS.pop(body.email, None)  # clear lockout on success
     return {"detail": "Password reset successfully. You can now sign in."}
 
 
 @router.get("/me")
 async def me(current_user: User = Depends(get_current_user)):
     return _user_out(current_user)
+
+
+class InviteBody(BaseModel):
+    role: str = "ba_pm"
+
+
+@router.post("/invite", status_code=201)
+async def generate_invite(
+    body: InviteBody,
+    current_user: User = Depends(require_admin),
+):
+    if body.role == "admin":
+        raise HTTPException(400, "Cannot generate an invite for the admin role.")
+    try:
+        UserRole(body.role)
+    except ValueError:
+        raise HTTPException(400, f"Invalid role '{body.role}'")
+    token = secrets.token_urlsafe(32)
+    _INVITE_TOKENS[token] = (body.role, time.time() + _INVITE_TTL)
+    invite_url = f"{settings.APP_BASE_URL}/register?token={token}&role={body.role}"
+    return {"token": token, "url": invite_url, "expires_in_hours": 72, "role": body.role}
 
 
 @router.get("/users")

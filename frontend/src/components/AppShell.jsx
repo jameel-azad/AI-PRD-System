@@ -31,7 +31,8 @@ const NAV_BAPM = [
 ]
 
 function buildClientNav(projects) {
-  const pid = projects[0]?.id ?? 'medaxis'
+  const pid = projects[0]?.id
+  if (!pid) return [{ grp: 'No project assigned' }]
   return [
     { grp: 'Your project' },
     { path: `/projects/${pid}/prd`,         label: 'Requirements (PRD)', icon: 'files'  },
@@ -107,8 +108,9 @@ function RoleMenu({ onClose }) {
     const lbl = r === 'admin' ? 'Admin' : r === 'client' ? 'Client Reviewer' : 'BA / PM'
     showToast(`Now viewing as ${lbl}`, r === 'client' ? 'client portal · limited to their project' : 'role-based access applied')
     if (r === 'client') {
-      const pid = projects[0]?.id ?? 'medaxis'
-      navigate(`/projects/${pid}/prd`)
+      const pid = projects[0]?.id
+      if (pid) navigate(`/projects/${pid}/prd`)
+      else navigate('/')
     } else {
       navigate('/')
     }

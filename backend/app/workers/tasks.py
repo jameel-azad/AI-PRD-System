@@ -1,9 +1,4 @@
-from celery import Celery
-
-from app.core.config import settings
-
-celery_app = Celery("prd_portal", broker=settings.REDIS_URL, backend=settings.REDIS_URL)
-celery_app.conf.broker_connection_retry_on_startup = True
+from workers.celery_app import app as celery_app
 
 
 @celery_app.task(name="run_ai_pipeline", bind=True, max_retries=3)

@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     # ── CORS allowed origins (comma-separated) ────────────────────────
     CORS_ORIGINS: str = "http://localhost:5173"
 
+    # ── Live web search (optional — used by feasibility agent) ────────
+    # Set TAVILY_API_KEY to enable live sanctions/regulatory search.
+    # Without it, the web_search tool returns a clearly-marked stub result.
+    TAVILY_API_KEY: str = ""
+
     # ── Registration gate ─────────────────────────────────────────────
     # Set to false in production to block self-registration entirely.
     # Accounts must then be created by an admin via the team management API.

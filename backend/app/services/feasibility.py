@@ -2,10 +2,12 @@ import json
 import logging
 import re
 
+import httpx
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 
+from app.core.config import settings
 from app.services.llm_factory import get_llm
 
 logger = logging.getLogger(__name__)
@@ -361,23 +363,61 @@ def get_regulatory_requirements(country: str, industry: str = "") -> dict:
 @tool
 def web_search(query: str) -> dict:
     """
-    Simulate a web search for recent regulatory or sanctions news.
+    Search the web for recent regulatory or sanctions news.
 
-    In production this must be replaced with a live search API call
-    (e.g. Google Custom Search, Bing Search API, or Tavily).
-    Until then it returns a clearly-labelled stub result so the Gemini agent
-    knows it received no live data and must note that in its output.
+    Uses the Tavily Search API when TAVILY_API_KEY is configured; otherwise
+    returns a clearly-labelled stub so the agent knows no live data was retrieved.
     """
-    return {
-        "query": query,
-        "results": [],
-        "stub_warning": (
-            "web_search is not connected to a live search API in this deployment. "
-            "No live results were retrieved. Mark any finding that required a live search "
-            "as 'inconclusive' and recommend the reviewer manually verify using official "
-            "sources (OFAC SDN search, UN sanctions list, EUR-Lex, UK OFSI)."
-        ),
-    }
+    if not settings.TAVILY_API_KEY:
+        return {
+            "query": query,
+            "results": [],
+            "live": False,
+            "stub_warning": (
+                "web_search is not connected to a live search API (TAVILY_API_KEY not set). "
+                "No live results were retrieved. Set the web_search status to 'inconclusive' "
+                "and note in the report that manual verification is required via official "
+                "sources: OFAC SDN search (sanctionssearch.ofac.treas.gov), UN Consolidated "
+                "Sanctions List (scsanctions.un.org), EU Consolidated Sanctions List "
+                "(eeas.europa.eu/cfsp), UK OFSI (gov.uk/ofsi)."
+            ),
+        }
+
+    try:
+        resp = httpx.post(
+            "https://api.tavily.com/search",
+            json={
+                "api_key": settings.TAVILY_API_KEY,
+                "query": query,
+                "search_depth": "basic",
+                "max_results": 5,
+                "include_answer": False,
+            },
+            timeout=15.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        results = [
+            {
+                "title": r.get("title", ""),
+                "url": r.get("url", ""),
+                "snippet": r.get("content", "")[:400],
+                "published_date": r.get("published_date", ""),
+            }
+            for r in data.get("results", [])
+        ]
+        return {"query": query, "results": results, "live": True}
+    except Exception as exc:
+        logger.warning("Tavily search failed for query %r: %s", query, exc)
+        return {
+            "query": query,
+            "results": [],
+            "live": False,
+            "stub_warning": (
+                f"Live web search failed ({type(exc).__name__}). "
+                "Set web_search status to 'inconclusive' and flag for manual review."
+            ),
+        }
 
 
 _FEASIBILITY_TOOLS = [

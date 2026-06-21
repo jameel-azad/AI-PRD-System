@@ -17,12 +17,19 @@ export default function SettingsView() {
     queryKey: ['audit-log'],
     queryFn: () => auth.auditLog().then(r => r.data),
   })
+  const DEFAULTS = {
+    pii: true, recordings: true, gdpr: true, anon: false,
+    clientActions: true, gapAnalysis: true, blockers: true, deadlines: true,
+    reminderSchedule: 'After 2 and 5 days',
+    prdLanguage: 'English',
+    deployModel: 'SaaS (multi-tenant)',
+  }
   const [switches, setSwitches] = useState(() => {
     try {
       const saved = localStorage.getItem(SETTINGS_KEY)
-      if (saved) return { ...{ pii: true, recordings: true, gdpr: true, anon: false, clientActions: true, gapAnalysis: true, blockers: true, deadlines: true }, ...JSON.parse(saved) }
+      if (saved) return { ...DEFAULTS, ...JSON.parse(saved) }
     } catch {}
-    return { pii: true, recordings: true, gdpr: true, anon: false, clientActions: true, gapAnalysis: true, blockers: true, deadlines: true }
+    return DEFAULTS
   })
 
   useEffect(() => {
@@ -35,6 +42,11 @@ export default function SettingsView() {
       showToast(`${label} ${next[key] ? 'enabled' : 'disabled'}`)
       return next
     })
+  }
+
+  function saveSelect(key, value, label) {
+    setSwitches(s => ({ ...s, [key]: value }))
+    showToast(`${label} saved`)
   }
 
   return (
@@ -74,19 +86,19 @@ export default function SettingsView() {
         <h4>Approval &amp; language defaults</h4>
         <div className="field">
           <label>Reminder schedule</label>
-          <select onChange={() => showToast('Default reminder schedule saved')}>
+          <select value={switches.reminderSchedule} onChange={e => saveSelect('reminderSchedule', e.target.value, 'Default reminder schedule')}>
             <option>After 2 and 5 days</option><option>Every 2 days</option><option>Weekly</option><option>Off</option>
           </select>
         </div>
         <div className="field">
           <label>Default PRD language</label>
-          <select onChange={() => showToast('Default PRD language saved')}>
+          <select value={switches.prdLanguage} onChange={e => saveSelect('prdLanguage', e.target.value, 'Default PRD language')}>
             <option>English</option><option>French</option><option>German</option><option>Arabic</option>
           </select>
         </div>
         <div className="field" style={{ marginBottom: 0 }}>
           <label>Default deployment model</label>
-          <select onChange={() => showToast('Default deployment saved')}>
+          <select value={switches.deployModel} onChange={e => saveSelect('deployModel', e.target.value, 'Default deployment model')}>
             <option>SaaS (multi-tenant)</option><option>Private GCP (dedicated)</option><option>Internal</option>
           </select>
         </div>

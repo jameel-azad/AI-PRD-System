@@ -11,7 +11,7 @@ const STAGE_TO_INDEX = {
 
 const PAGE_SIZE = 20
 
-function apiProjectToStore(p) {
+export function apiProjectToStore(p) {
   const stageLabel = (p.stage || 'intake').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
   return {
     id: p.id,
@@ -20,7 +20,7 @@ function apiProjectToStore(p) {
     client_org: p.client_org,
     country: '',
     industry: '',
-    feas: 'green',
+    feas: p.feas_status || 'green',
     completeness: p.completeness ?? 0,
     status: p.stage === 'approved' ? 'approved' : p.stage === 'processing' ? 'draft' : 'intake',
     statusLabel: stageLabel,

@@ -6,12 +6,13 @@ GET    /api/v1/queue/tasks/{task_id}          — status of a specific task
 DELETE /api/v1/queue/tasks/{task_id}          — cancel a pending/running task
 POST   /api/v1/queue/{project_id}/reprocess  — re-enqueue all non-complete files
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_role
 from app.core.database import get_db
+from app.core.limiter import limiter
 from app.models.project import Project
 from app.models.source_file import SourceFile
 from app.models.user import User, UserRole
@@ -67,7 +68,9 @@ async def cancel_pipeline_task(
 
 
 @router.post("/{project_id}/reprocess")
+@limiter.limit("10/minute")
 async def reprocess_project(
+    request: Request,
     project_id: int,
     current_user: User = Depends(require_role(UserRole.admin, UserRole.ba_pm)),
     db: AsyncSession = Depends(get_db),

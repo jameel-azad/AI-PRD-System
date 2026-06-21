@@ -16,3 +16,4 @@ class SourceFile(Base):
     file_type: Mapped[str]
     transcript: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(default="pending")
+    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)

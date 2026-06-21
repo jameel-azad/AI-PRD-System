@@ -18,7 +18,14 @@ import Toast from './components/Toast'
 import ModalHost from './components/ModalHost'
 
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
+  defaultOptions: {
+    queries: {
+      retry: 1,
+      staleTime: 30_000,
+      gcTime: 5 * 60_000,
+      refetchOnWindowFocus: false,
+    },
+  },
 })
 
 function NotFound() {
@@ -47,6 +54,14 @@ function RoleRoute({ roles, children }) {
   return roles.includes(viewRole) ? children : <Navigate to="/" replace />
 }
 
+function ClientGuard({ children }) {
+  const viewRole = useAuthStore(s => s.viewRole)
+  const projects = useProjectStore(s => s.projects)
+  if (viewRole !== 'client') return children
+  const pid = projects[0]?.id
+  return <Navigate to={pid ? `/projects/${pid}/prd` : '/settings'} replace />
+}
+
 function AuthedApp() {
   const initFromApi = useProjectStore(s => s.initFromApi)
   useEffect(() => { initFromApi() }, [initFromApi])
@@ -61,9 +76,9 @@ function AuthedApp() {
   return (
     <AppShell>
       <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/projects" element={<ProjectsView />} />
+        <Route path="/" element={<ClientGuard><Dashboard /></ClientGuard>} />
+        <Route path="/dashboard" element={<ClientGuard><Dashboard /></ClientGuard>} />
+        <Route path="/projects" element={<ClientGuard><ProjectsView /></ClientGuard>} />
         <Route path="/projects/:id" element={<ProjectWorkspace />} />
         <Route path="/projects/:id/:tab" element={<ProjectWorkspace />} />
         <Route path="/clarifications" element={<ClarificationsView />} />
