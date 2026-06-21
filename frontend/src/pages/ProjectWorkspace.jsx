@@ -179,6 +179,7 @@ function TabInputs({ p }) {
   const [refreshing,    setRefreshing]    = useState(false)
   const [reprocessing,  setReprocessing]  = useState(false)
   const [deletingId,    setDeletingId]    = useState(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null)
   const fkIco = { video:'🎥', audio:'🎙', doc:'📄', email:'✉️', chat:'💬' }
 
   const hasIncomplete = p.inputs.some(f => f.stat !== 'done')
@@ -226,6 +227,7 @@ function TabInputs({ p }) {
   }
 
   async function deleteFile(fileId) {
+    setConfirmDeleteId(null)
     setDeletingId(fileId)
     try {
       await filesApi.delete(fileId)
@@ -283,14 +285,31 @@ function TabInputs({ p }) {
                 {f.stat==='done'?'Indexed':f.stat==='proc'?'Processing':f.stat==='err'?'Error':'Queued'}
               </div>
               {f.fileId && (
-                <button
-                  onClick={() => deleteFile(f.fileId)}
-                  disabled={deletingId === f.fileId}
-                  title="Delete file"
-                  style={{ background:'none', border:'none', cursor:'pointer', color:'var(--ink-soft)', padding:'4px 6px', fontSize:'14px', lineHeight:1 }}
-                >
-                  {deletingId === f.fileId ? '…' : '✕'}
-                </button>
+                confirmDeleteId === f.fileId ? (
+                  <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                    <button
+                      onClick={() => deleteFile(f.fileId)}
+                      disabled={deletingId === f.fileId}
+                      style={{ background: 'var(--red)', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', padding: '3px 8px', fontSize: '12px', fontWeight: 600 }}
+                    >
+                      {deletingId === f.fileId ? '…' : 'Delete'}
+                    </button>
+                    <button
+                      onClick={() => setConfirmDeleteId(null)}
+                      style={{ background: 'none', border: '1px solid var(--line)', borderRadius: '4px', cursor: 'pointer', padding: '3px 8px', fontSize: '12px', color: 'var(--ink-soft)' }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmDeleteId(f.fileId)}
+                    title="Delete file"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-soft)', padding: '4px 6px', fontSize: '14px', lineHeight: 1 }}
+                  >
+                    ✕
+                  </button>
+                )
               )}
             </div>
           ))
@@ -601,10 +620,26 @@ export default function ProjectWorkspace() {
   const user = useAuthStore(s => s.user)
   const isClient = viewRole === 'client'
 
+  const loading = useProjectStore(s => s.loading)
   const p = projects.find(x => String(x.id) === String(id))
   const tab = tabParam || 'overview'
 
-  if (!p) return <div style={{padding:'40px',color:'var(--ink-soft)'}}>Project not found.</div>
+  if (loading && !p) return (
+    <div style={{ padding: '60px', textAlign: 'center', color: 'var(--ink-soft)' }}>
+      <div style={{ fontSize: '24px', marginBottom: '12px' }}>⏳</div>
+      <p>Loading project…</p>
+    </div>
+  )
+  if (!p) {
+    return (
+      <div style={{ padding: '60px', textAlign: 'center' }}>
+        <div style={{ fontSize: '32px', marginBottom: '12px' }}>404</div>
+        <h3 style={{ marginBottom: '8px' }}>Project not found</h3>
+        <p style={{ color: 'var(--ink-soft)', marginBottom: '20px' }}>This project may have been deleted or you may not have access.</p>
+        <button className="btn btn-primary" onClick={() => navigate('/projects')}>Back to Projects</button>
+      </div>
+    )
+  }
 
   const openCount = (p.clars || []).filter(c => c.state === 'open').length
   const cCount = 0  // real comment count fetched inside DiscussionThread via API

@@ -73,7 +73,7 @@ function NewProjectModal({ closeModal, showToast, addProject }) {
       closeModal()
       showToast(`Project "${name}" created`)
     } catch (err) {
-      showToast(err.response?.data?.detail || 'Failed to create project')
+      showToast(err.response?.data?.detail || 'Failed to create project', 'error')
     }
   }
 
@@ -244,19 +244,32 @@ function UploadModal({ closeModal, showToast, projects, param }) {
 
     const f = fileRef.current?.files?.[0]
     if (!f) { showToast('Choose a file to upload'); return }
+    const ext = f.name.split('.').pop()?.toLowerCase() || ''
+    const SIZE_LIMITS_MB = { mp3:500, wav:500, m4a:500, ogg:500, mp4:1000, mov:1000, avi:1000, mkv:1000, webm:1000, pdf:50, docx:50, txt:50, md:50, png:20, jpg:20, jpeg:20, webp:20 }
+    const limitMB = SIZE_LIMITS_MB[ext] ?? 500
+    if (f.size > limitMB * 1_000_000) { showToast(`File too large — max ${limitMB} MB for .${ext} files`, 'error'); return }
     const nm = f.name
     const sz = (f.size / 1048576).toFixed(1) + ' MB'
     try {
-      await filesApi.upload(pid, f)
+      const { data: uploadRes } = await filesApi.upload(pid, f)
       updateProject(pid, proj => {
         const newFlowState = proj.flowState.every(s => s === 0) ? [2, ...proj.flowState.slice(1)] : proj.flowState
-        return { ...proj, inputs: [...(proj.inputs || []), { name: nm, kind, size: sz, stat: 'proc', prog: 0, meta: 'processing…' }], stage: Math.max(proj.stage, 1), flowState: newFlowState }
+        const newFile = {
+          fileId: uploadRes.id,          // real backend ID — enables delete
+          name: uploadRes.filename || nm,
+          kind,
+          size: sz,
+          stat: 'queue',
+          prog: 0,
+          meta: uploadRes.status || 'queued',
+        }
+        return { ...proj, inputs: [...(proj.inputs || []), newFile], stage: Math.max(proj.stage, 1), flowState: newFlowState }
       })
       addProjectActivity(pid, { ico: '📥', c: 'violet-soft', cl: 'var(--violet)', txt: `<b>You</b> added ${nm}`, time: 'Just now' })
       closeModal()
       showToast('Input added — processing started')
     } catch (err) {
-      showToast(err.response?.data?.detail || 'Upload failed')
+      showToast(err.response?.data?.detail || 'Upload failed', 'error')
     }
   }
 

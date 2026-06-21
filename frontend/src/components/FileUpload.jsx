@@ -11,6 +11,22 @@ const STATUS_LABELS = {
   cancelled:  { text: 'Cancelled',  cls: 'bg-gray-100 text-gray-600' },
 }
 
+const EXT_SIZE_LIMITS = {
+  mp3: 500, wav: 500, m4a: 500, ogg: 500,         // audio: 500MB
+  mp4: 1000, mov: 1000, avi: 1000, mkv: 1000, webm: 1000, // video: 1GB
+  pdf: 50, docx: 50, txt: 50, md: 50,             // docs: 50MB
+  png: 20, jpg: 20, jpeg: 20, webp: 20,           // images: 20MB
+}
+
+function checkFileSize(file) {
+  const ext = file.name.split('.').pop()?.toLowerCase() || ''
+  const limitMB = EXT_SIZE_LIMITS[ext] ?? 500
+  if (file.size > limitMB * 1_000_000) {
+    return `File too large — max ${limitMB} MB for .${ext} files`
+  }
+  return null
+}
+
 function useTaskPoller(taskId, onDone) {
   useEffect(() => {
     if (!taskId) return
@@ -72,6 +88,12 @@ export default function FileUpload({ projectId, files = [] }) {
   function handleFiles(e) {
     const file = e.target.files[0]
     if (!file) return
+    const sizeError = checkFileSize(file)
+    if (sizeError) {
+      setMessage(sizeError)
+      e.target.value = ''
+      return
+    }
     setUploading(true)
     setMessage('')
     setTaskId(null)

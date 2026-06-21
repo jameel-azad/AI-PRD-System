@@ -23,7 +23,7 @@ const STAGE_TO_INDEX = {
 
 export default function ProjectsView() {
   const navigate = useNavigate()
-  const { projects, userById, hasMore, loadMoreProjects } = useProjectStore()
+  const { projects, userById, hasMore, loadMoreProjects, loading } = useProjectStore()
   const { openModal } = useAppStore()
   const [search, setSearch] = useState('')
   const [stageFilter, setStageFilter] = useState('')
@@ -51,6 +51,15 @@ export default function ProjectsView() {
     }
     return list
   }, [projects, search, stageFilter])
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 24px', textAlign: 'center', gap: '12px', color: 'var(--ink-soft)' }}>
+        <div style={{ fontSize: '24px' }}>⏳</div>
+        <p>Loading projects…</p>
+      </div>
+    )
+  }
 
   if (projects.length === 0) {
     return (

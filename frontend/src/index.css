@@ -418,6 +418,7 @@ fieldset legend{font-size:12.5px;font-weight:600;margin-bottom:8px}
 .deploy label.selected{border-color:var(--accent);background:var(--accent-soft)}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:#14171f;border:1px solid rgba(255,255,255,.14);color:#fff;font-size:13.5px;font-weight:600;border-radius:10px;padding:12px 20px;opacity:0;transition:all .25s;z-index:60;display:flex;gap:10px;align-items:center;max-width:90vw}
 .toast.show{transform:translateX(-50%);opacity:1}
+.toast.toast-error{background:#7f1d1d;border-color:#ef4444}
 .spinner{width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;flex:none}
 @keyframes spin{to{transform:rotate(360deg)}}
 .banner{display:flex;gap:12px;align-items:center;padding:13px 18px;border-radius:var(--radius);font-size:13px;margin-bottom:18px;flex-wrap:wrap}

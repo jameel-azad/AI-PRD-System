@@ -8,7 +8,10 @@ const useAppStore = create((set, get) => ({
     const prev = get().toastTimer
     if (prev) clearTimeout(prev)
     const timer = setTimeout(() => set({ toast: null, toastTimer: null }), ms)
-    set({ toast: { msg, cite, busy: false }, toastTimer: timer })
+    // If cite === 'error', treat it as an error type (no subtitle); otherwise it's a subtitle string.
+    const type = cite === 'error' ? 'error' : 'info'
+    const subtitle = cite === 'error' ? null : cite
+    set({ toast: { msg, cite: subtitle, type, busy: false }, toastTimer: timer })
   },
   busyToast(msg) {
     const prev = get().toastTimer

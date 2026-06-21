@@ -60,6 +60,7 @@ const useProjectStore = create((set, get) => ({
   roles: JSON.parse(JSON.stringify(BUILTIN_ROLES)),
   hasMore: false,
   nextOffset: 0,
+  loading: true,
 
   projById: (id) => get().projects.find(p => String(p.id) === String(id)),
   userById: (id) => get().users.find(u => u.id === id),
@@ -88,6 +89,7 @@ const useProjectStore = create((set, get) => ({
       }
     }
 
+    set({ loading: true })
     try {
       const { data } = await projectsApi.list({ limit: PAGE_SIZE, offset: 0 })
       const users = currentUser ? [currentUserEntry(currentUser)] : []
@@ -96,12 +98,13 @@ const useProjectStore = create((set, get) => ({
         users,
         hasMore: data.length === PAGE_SIZE,
         nextOffset: PAGE_SIZE,
+        loading: false,
       })
       // Real API succeeded — notifications start empty (real events will push in over time)
       useAppStore.getState().clearNotifications()
     } catch {
       // API unreachable — show empty state with an error toast. Never substitute fake data.
-      set({ projects: [], users: currentUser ? [currentUserEntry(currentUser)] : [], hasMore: false, nextOffset: 0 })
+      set({ projects: [], users: currentUser ? [currentUserEntry(currentUser)] : [], hasMore: false, nextOffset: 0, loading: false })
       useAppStore.getState().showToast(
         'Could not reach the backend — check that the server is running.',
         'error'
