@@ -1,12 +1,11 @@
 import axios from 'axios'
 import useAuthStore from '../store/authStore'
 
-const api = axios.create({ baseURL: (import.meta.env.VITE_API_URL ?? '') + '/api/v1' })
-
-api.interceptors.request.use(config => {
-  const token = useAuthStore.getState().token
-  if (token) config.headers.Authorization = `Bearer ${token}`
-  return config
+const api = axios.create({
+  baseURL: (import.meta.env.VITE_API_URL ?? '') + '/api/v1',
+  // Required for the httpOnly auth cookie to be sent on every request.
+  // The Vite proxy makes all /api calls same-origin, so Lax cookies are included automatically.
+  withCredentials: true,
 })
 
 api.interceptors.response.use(
@@ -22,9 +21,15 @@ api.interceptors.response.use(
   }
 )
 
+async function logoutAndClear() {
+  try { await api.post('/auth/logout') } catch {}
+  useAuthStore.getState().logout()
+}
+
 export const auth = {
   register:       data          => api.post('/auth/register', data),
   login:          data          => api.post('/auth/login', data),
+  logout:         ()            => logoutAndClear(),
   me:             ()            => api.get('/auth/me'),
   auditLog:       ()            => api.get('/auth/audit-log'),
   users:          ()            => api.get('/auth/users'),
@@ -38,8 +43,9 @@ export const projects = {
   get:         id           => api.get(`/projects/${id}`),
   create:      data         => api.post('/projects/', data),
   updateStage: (id, stage)  => api.patch(`/projects/${id}/stage`, { stage }),
-  comments:    id           => api.get(`/projects/${id}/comments`),
-  addComment:  (id, data)   => api.post(`/projects/${id}/comments`, data),
+  comments:       id                    => api.get(`/projects/${id}/comments`),
+  addComment:     (id, data)            => api.post(`/projects/${id}/comments`, data),
+  resolveComment: (projectId, commentId) => api.patch(`/projects/${projectId}/comments/${commentId}/resolve`),
 }
 
 export const files = {
@@ -69,9 +75,10 @@ export const exportPrd = {
 }
 
 export const queue = {
-  stats:      ()         => api.get('/queue/stats'),
-  taskStatus: taskId     => api.get(`/queue/tasks/${taskId}`),
-  cancelTask: taskId     => api.delete(`/queue/tasks/${taskId}`),
+  stats:       ()          => api.get('/queue/stats'),
+  taskStatus:  taskId      => api.get(`/queue/tasks/${taskId}`),
+  cancelTask:  taskId      => api.delete(`/queue/tasks/${taskId}`),
+  reprocess:   projectId   => api.post(`/queue/${projectId}/reprocess`),
 }
 
 export default api

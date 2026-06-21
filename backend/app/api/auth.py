@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +8,20 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import hash_password, verify_password, create_access_token
 from app.api.deps import get_current_user, require_admin
+
+_COOKIE = "xccelera_token"
+
+
+def _set_auth_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=_COOKIE,
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=False,          # set True behind HTTPS in production
+        max_age=settings.JWT_EXPIRE_MINUTES * 60,
+        path="/",
+    )
 from app.models.approval import Approval
 from app.models.comment import Comment
 from app.models.prd_version import PRDVersion
@@ -52,7 +67,9 @@ async def register(body: RegisterBody, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(user)
     token = create_access_token({"sub": str(user.id), "role": user.role.value})
-    return {"access_token": token, "token_type": "bearer", "user": _user_out(user)}
+    resp = JSONResponse(status_code=201, content={"user": _user_out(user)})
+    _set_auth_cookie(resp, token)
+    return resp
 
 
 @router.post("/login")
@@ -61,7 +78,16 @@ async def login(body: LoginBody, db: AsyncSession = Depends(get_db)):
     if not user or not verify_password(body.password, user.hashed_pw):
         raise HTTPException(401, "Invalid credentials")
     token = create_access_token({"sub": str(user.id), "role": user.role.value})
-    return {"access_token": token, "token_type": "bearer", "user": _user_out(user)}
+    resp = JSONResponse(content={"user": _user_out(user)})
+    _set_auth_cookie(resp, token)
+    return resp
+
+
+@router.post("/logout")
+async def logout():
+    resp = JSONResponse(content={"ok": True})
+    resp.delete_cookie(key=_COOKIE, path="/", samesite="lax")
+    return resp
 
 
 @router.get("/me")

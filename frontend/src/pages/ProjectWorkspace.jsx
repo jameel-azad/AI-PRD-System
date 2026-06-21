@@ -5,7 +5,7 @@ import useAuthStore from '../store/authStore'
 import useAppStore from '../store/appStore'
 import { FeasBadge, MeterColor, Avatar, AvatarStack } from '../components/Badge'
 import { STAGES, FLOW, SECTION_NAMES } from '../data/mockData'
-import { exportPrd, prd as prdApi, projects as projectsApi } from '../services/api'
+import { exportPrd, prd as prdApi, projects as projectsApi, queue as queueApi } from '../services/api'
 import PRDSection from '../components/PRDSection'
 import FeasibilityPanel from '../components/FeasibilityPanel'
 import DiscussionThread from '../components/DiscussionThread'
@@ -176,8 +176,29 @@ function TabOverview({ p, navigate }) {
 function TabInputs({ p }) {
   const { openModal, showToast } = useAppStore()
   const { updateProject } = useProjectStore()
-  const [refreshing, setRefreshing] = useState(false)
+  const [refreshing,    setRefreshing]    = useState(false)
+  const [reprocessing,  setReprocessing]  = useState(false)
   const fkIco = { video:'🎥', audio:'🎙', doc:'📄', email:'✉️', chat:'💬' }
+
+  const hasIncomplete = p.inputs.some(f => f.stat !== 'done')
+
+  async function reprocessAll() {
+    setReprocessing(true)
+    try {
+      const { data } = await queueApi.reprocess(p.id)
+      const count = data.queued?.length ?? 0
+      if (count === 0) {
+        showToast('All files are already complete — nothing to re-process')
+      } else {
+        showToast(`Re-queued ${count} file${count !== 1 ? 's' : ''} for processing`)
+        await refreshStatus()
+      }
+    } catch {
+      showToast('Could not re-process — backend may be unavailable', 'error')
+    } finally {
+      setReprocessing(false)
+    }
+  }
 
   async function refreshStatus() {
     setRefreshing(true)
@@ -224,6 +245,11 @@ function TabInputs({ p }) {
           <h3>Source files</h3>
           <span className="count" style={{background:'var(--accent-soft)',color:'var(--accent)'}}>{p.inputs.length}</span>
           <span className="spacer" />
+          {hasIncomplete && (
+            <button className="btn btn-ghost btn-sm" onClick={reprocessAll} disabled={reprocessing || refreshing} style={{marginRight:'6px'}}>
+              {reprocessing ? 'Re-queuing…' : '⟳ Re-process failed'}
+            </button>
+          )}
           <button className="btn btn-ghost btn-sm" onClick={refreshStatus} disabled={refreshing}>
             {refreshing ? 'Refreshing…' : '↻ Refresh status'}
           </button>

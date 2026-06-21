@@ -3,19 +3,22 @@ import { persist } from 'zustand/middleware'
 
 const useAuthStore = create(
   persist(
-    (set, get) => ({
-      token: null,
-      user:  null,
+    (set) => ({
+      user:     null,
       viewRole: 'bapm',  // bapm | admin | client
-      login:  ({ access_token, user }) => {
+      login: ({ user }) => {
         // Backend enum uses "ba_pm"; the frontend ROLE_MAP and comparisons use "bapm".
         const viewRole = user?.role === 'ba_pm' ? 'bapm' : (user?.role || 'bapm')
-        set({ token: access_token, user, viewRole })
+        set({ user, viewRole })
       },
-      logout: () => set({ token: null, user: null, viewRole: 'bapm' }),
+      logout: () => set({ user: null, viewRole: 'bapm' }),
       setViewRole: (role) => set({ viewRole: role }),
     }),
-    { name: 'prd-auth' }
+    {
+      name: 'prd-auth',
+      // Only persist the user object — token lives in an httpOnly cookie, not localStorage
+      partialize: (state) => ({ user: state.user, viewRole: state.viewRole }),
+    }
   )
 )
 

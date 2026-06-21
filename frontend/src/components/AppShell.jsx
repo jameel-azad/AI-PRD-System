@@ -4,6 +4,7 @@ import useAuthStore from '../store/authStore'
 import useAppStore from '../store/appStore'
 import useProjectStore from '../store/projectStore'
 import { renderBoldText } from '../utils/renderBoldText'
+import { auth as authApi } from '../services/api'
 
 const ROLE_LABELS = {
   admin:  'Admin',
@@ -171,8 +172,8 @@ export default function AppShell({ children }) {
     }
   }
 
-  function doLogout() {
-    logout()
+  async function doLogout() {
+    await authApi.logout()   // clears httpOnly cookie on backend + local state
     navigate('/login')
   }
 

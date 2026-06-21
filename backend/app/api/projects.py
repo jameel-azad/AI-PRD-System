@@ -129,7 +129,7 @@ async def list_comments(
         await db.execute(select(Comment).where(Comment.project_id == project_id).order_by(Comment.created_at))
     ).scalars().all()
     return [
-        {"id": c.id, "content": c.content, "user_id": c.user_id, "parent_id": c.parent_id, "created_at": c.created_at}
+        {"id": c.id, "content": c.content, "user_id": c.user_id, "parent_id": c.parent_id, "resolved": c.resolved, "created_at": c.created_at}
         for c in rows
     ]
 
@@ -147,4 +147,19 @@ async def add_comment(
     db.add(comment)
     await db.commit()
     await db.refresh(comment)
-    return {"id": comment.id, "content": comment.content, "user_id": comment.user_id, "parent_id": comment.parent_id, "created_at": comment.created_at}
+    return {"id": comment.id, "content": comment.content, "user_id": comment.user_id, "parent_id": comment.parent_id, "resolved": comment.resolved, "created_at": comment.created_at}
+
+
+@router.patch("/{project_id}/comments/{comment_id}/resolve")
+async def resolve_comment(
+    project_id: int,
+    comment_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    comment = await db.get(Comment, comment_id)
+    if not comment or comment.project_id != project_id:
+        raise HTTPException(404, "Comment not found")
+    comment.resolved = True
+    await db.commit()
+    return {"id": comment.id, "resolved": comment.resolved}

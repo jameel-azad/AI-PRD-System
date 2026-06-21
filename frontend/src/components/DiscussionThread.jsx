@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { projects as projectsApi } from '../services/api'
 import useAuthStore from '../store/authStore'
 
-function Comment({ comment, replies, onReply }) {
+function Comment({ comment, replies, onReply, onResolve }) {
   const [replying, setReplying] = useState(false)
   const [text, setText] = useState('')
 
@@ -15,7 +15,7 @@ function Comment({ comment, replies, onReply }) {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" style={{ opacity: comment.resolved ? 0.6 : 1 }}>
       <div className="flex gap-3">
         <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-sm font-semibold flex-shrink-0">
           {String(comment.user_id).slice(-2)}
@@ -24,13 +24,27 @@ function Comment({ comment, replies, onReply }) {
           <div className="bg-white rounded-xl border border-gray-200 px-4 py-3">
             <div className="flex items-center justify-between mb-1">
               <span className="text-sm font-medium text-gray-900">User #{comment.user_id}</span>
-              <span className="text-xs text-gray-400">{new Date(comment.created_at).toLocaleString()}</span>
+              <div className="flex items-center gap-2">
+                {comment.resolved && (
+                  <span className="text-xs text-green-600 font-medium">✓ Resolved</span>
+                )}
+                <span className="text-xs text-gray-400">{new Date(comment.created_at).toLocaleString()}</span>
+              </div>
             </div>
             <p className="text-sm text-gray-700">{comment.content}</p>
           </div>
-          <button onClick={() => setReplying(!replying)} className="text-xs text-gray-400 hover:text-blue-600 mt-1 ml-1">
-            Reply
-          </button>
+          <div className="flex gap-3 mt-1 ml-1">
+            {!comment.resolved && (
+              <button onClick={() => setReplying(!replying)} className="text-xs text-gray-400 hover:text-blue-600">
+                Reply
+              </button>
+            )}
+            {!comment.resolved && onResolve && (
+              <button onClick={() => onResolve(comment.id)} className="text-xs text-gray-400 hover:text-green-600">
+                Mark resolved
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -80,6 +94,11 @@ export default function DiscussionThread({ projectId }) {
     onSuccess:  () => { qc.invalidateQueries(['comments', projectId]); setText('') },
   })
 
+  const resolveMutation = useMutation({
+    mutationFn: commentId => projectsApi.resolveComment(projectId, commentId),
+    onSuccess:  () => qc.invalidateQueries(['comments', projectId]),
+  })
+
   const roots   = comments.filter(c => !c.parent_id)
   const replies = id => comments.filter(c => c.parent_id === id)
 
@@ -116,7 +135,13 @@ export default function DiscussionThread({ projectId }) {
       ) : (
         <div className="space-y-5">
           {roots.map(c => (
-            <Comment key={c.id} comment={c} replies={replies(c.id)} onReply={handleReply} />
+            <Comment
+              key={c.id}
+              comment={c}
+              replies={replies(c.id)}
+              onReply={handleReply}
+              onResolve={resolveMutation.mutate}
+            />
           ))}
         </div>
       )}
