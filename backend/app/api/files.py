@@ -65,3 +65,26 @@ async def upload_file(
     task = run_ai_pipeline.delay(source_file.id)
 
     return {"id": source_file.id, "filename": source_file.filename, "status": "queued", "task_id": task.id}
+
+
+@router.delete("/{file_id}", status_code=204)
+async def delete_file(
+    file_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    source_file = await db.get(SourceFile, file_id)
+    if not source_file:
+        raise HTTPException(404, "File not found")
+
+    project = await db.get(Project, source_file.project_id)
+    if current_user.role.value != "admin" and project.owner_id != current_user.id:
+        raise HTTPException(403, "Access denied to this file")
+
+    try:
+        await storage_service.delete(source_file.storage_key)
+    except Exception:
+        pass  # storage object may already be missing; proceed to remove DB record
+
+    await db.delete(source_file)
+    await db.commit()
