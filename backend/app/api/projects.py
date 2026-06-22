@@ -46,6 +46,7 @@ class StageUpdate(BaseModel):
 class CommentBody(BaseModel):
     content: str
     parent_id: int | None = None
+    section: str | None = None
 
 
 class GapAnswerBody(BaseModel):
@@ -93,12 +94,23 @@ async def list_projects(
     else:
         feas_map = {}
 
+    # Batch-fetch project owners so we can include name/role without N+1 queries
+    owner_ids = list({p.owner_id for p in rows})
+    owner_map: dict[int, User] = {}
+    if owner_ids:
+        owner_rows = (await db.execute(select(User).where(User.id.in_(owner_ids)))).scalars().all()
+        owner_map = {u.id: u for u in owner_rows}
+
     result = []
     for p in rows:
         completeness = await _latest_completeness(p.id, db)
+        owner = owner_map.get(p.owner_id)
         result.append({
             "id": p.id, "name": p.name, "client_org": p.client_org,
             "stage": p.stage, "created_at": p.created_at,
+            "owner_id": p.owner_id,
+            "owner_name": owner.name if owner else None,
+            "owner_role": owner.role.value if owner else "ba_pm",
             "completeness": completeness,
             "feas_status": feas_map.get(p.id),
         })
@@ -193,8 +205,25 @@ async def list_comments(
     rows = (
         await db.execute(select(Comment).where(Comment.project_id == project_id).order_by(Comment.created_at))
     ).scalars().all()
+    if not rows:
+        return []
+    user_ids = list({c.user_id for c in rows})
+    user_map = {
+        u.id: u
+        for u in (await db.execute(select(User).where(User.id.in_(user_ids)))).scalars().all()
+    }
     return [
-        {"id": c.id, "content": c.content, "user_id": c.user_id, "parent_id": c.parent_id, "resolved": c.resolved, "created_at": c.created_at}
+        {
+            "id": c.id,
+            "content": c.content,
+            "section": c.section,
+            "user_id": c.user_id,
+            "user_name": user_map[c.user_id].name if c.user_id in user_map else "Unknown",
+            "user_role": user_map[c.user_id].role.value if c.user_id in user_map else "ba_pm",
+            "parent_id": c.parent_id,
+            "resolved": c.resolved,
+            "created_at": c.created_at,
+        }
         for c in rows
     ]
 
@@ -208,11 +237,27 @@ async def add_comment(
 ):
     if not await db.get(Project, project_id):
         raise HTTPException(404, "Project not found")
-    comment = Comment(project_id=project_id, user_id=current_user.id, content=body.content, parent_id=body.parent_id)
+    comment = Comment(
+        project_id=project_id,
+        user_id=current_user.id,
+        content=body.content,
+        parent_id=body.parent_id,
+        section=body.section,
+    )
     db.add(comment)
     await db.commit()
     await db.refresh(comment)
-    return {"id": comment.id, "content": comment.content, "user_id": comment.user_id, "parent_id": comment.parent_id, "resolved": comment.resolved, "created_at": comment.created_at}
+    return {
+        "id": comment.id,
+        "content": comment.content,
+        "section": comment.section,
+        "user_id": comment.user_id,
+        "user_name": current_user.name,
+        "user_role": current_user.role.value,
+        "parent_id": comment.parent_id,
+        "resolved": comment.resolved,
+        "created_at": comment.created_at,
+    }
 
 
 @router.patch("/{project_id}/gaps/answer")

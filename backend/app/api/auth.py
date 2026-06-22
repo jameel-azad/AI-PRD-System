@@ -6,7 +6,8 @@ from collections import defaultdict
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -120,8 +121,18 @@ class ResetBody(BaseModel):
     new_password: str
 
 
+class RoleBody(BaseModel):
+    role: str
+
+
 def _user_out(user: User) -> dict:
-    return {"id": user.id, "email": user.email, "name": user.name, "role": user.role}
+    return {
+        "id": user.id,
+        "email": user.email,
+        "name": user.name,
+        "role": user.role,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+    }
 
 
 @router.post("/register", status_code=201)
@@ -290,7 +301,7 @@ async def admin_create_user(
 @router.patch("/users/{user_id}/role")
 async def update_user_role(
     user_id: int,
-    body: RegisterBody,
+    body: RoleBody,
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -318,8 +329,25 @@ async def delete_user(
         raise HTTPException(404, "User not found")
     if user.id == current_user.id:
         raise HTTPException(400, "Cannot delete your own account")
-    await db.delete(user)
-    await db.commit()
+    project_count = (
+        await db.execute(select(func.count(Project.id)).where(Project.owner_id == user_id))
+    ).scalar_one()
+    if project_count > 0:
+        raise HTTPException(
+            400,
+            f"Cannot remove this user: they own {project_count} project(s). "
+            "Reassign or delete those projects first.",
+        )
+    try:
+        await db.delete(user)
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            400,
+            "Cannot remove this user: they have associated records in the system. "
+            "Remove their linked data first.",
+        )
 
 
 @router.get("/audit-log")

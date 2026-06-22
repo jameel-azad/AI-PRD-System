@@ -17,8 +17,8 @@ export function MeterColor(p) {
 }
 
 export function Avatar({ user, size = '' }) {
-  const initials = user.name.split(' ').map(x => x[0]).join('').slice(0, 2)
-  return <span className={`avatar ${size} ${user.color}`}>{initials}</span>
+  const initials = (user.name || '?').split(' ').map(x => x[0]).join('').slice(0, 2).toUpperCase()
+  return <span className={`avatar ${size} ${user.color || 'c-teal'}`}>{initials}</span>
 }
 
 export function AvatarStack({ users }) {

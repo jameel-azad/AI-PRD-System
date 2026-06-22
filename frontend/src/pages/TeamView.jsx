@@ -5,10 +5,30 @@ import useAppStore from '../store/appStore'
 import { auth as authApi } from '../services/api'
 
 const ROLE_LABELS = { admin: 'Admin', ba_pm: 'BA / PM', client: 'Client Reviewer' }
-const ROLE_BADGE  = { admin: 'violet', ba_pm: 'teal', client: 'green' }
+const AVATAR_COLORS = ['teal', 'violet', 'amber', 'red', 'blue']
 
 function getInitials(name) {
   return (name || '?').split(' ').map(x => x[0]).join('').slice(0, 2).toUpperCase()
+}
+
+function avatarColor(name) {
+  let h = 0
+  for (const c of (name || '')) h = (h * 31 + c.charCodeAt(0)) & 0xffffffff
+  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length]
+}
+
+function relTime(iso) {
+  if (!iso) return '—'
+  const diff = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'now'
+  if (mins < 60) return `${mins} min ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs} h ago`
+  const days = Math.floor(hrs / 24)
+  if (days === 1) return 'Yesterday'
+  if (days < 7) return `${days} days ago`
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }
 
 function InviteForm({ onClose }) {
@@ -48,6 +68,7 @@ function InviteForm({ onClose }) {
           <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
             style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--line)', borderRadius: '9px', background: 'var(--paper)', color: 'var(--ink)' }}>
             <option value="ba_pm">BA / PM</option>
+            <option value="admin">Admin</option>
             <option value="client">Client Reviewer</option>
           </select>
         </div>
@@ -148,12 +169,78 @@ export default function TeamView() {
 
   const deleteMutation = useMutation({
     mutationFn: id => authApi.deleteUser(id),
-    onSuccess: () => { qc.invalidateQueries(['team-users']); showToast('User removed') },
+    onSuccess: () => { qc.invalidateQueries(['team-users']); showToast('Member removed from workspace') },
     onError: err => showToast(err.response?.data?.detail || 'Remove failed', 'error'),
   })
 
   if (isLoading) return <div style={{ padding: '40px', color: 'var(--ink-soft)' }}>Loading team…</div>
   if (error)     return <div style={{ padding: '40px', color: 'var(--red)' }}>Failed to load team members. Make sure you have admin access.</div>
+
+  const internal = users.filter(u => (u.role?.value || u.role) !== 'client')
+  const clients  = users.filter(u => (u.role?.value || u.role) === 'client')
+
+  function MemberRow({ u }) {
+    const isSelf   = u.id === currentUser?.id
+    const roleVal  = u.role?.value || u.role
+    const isClient = roleVal === 'client'
+    const color    = avatarColor(u.name)
+
+    return (
+      <tr>
+        <td>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span className={`avatar sm c-${color}`}>{getInitials(u.name)}</span>
+            <strong>
+              {u.name}
+              {isSelf && <span style={{ fontWeight: 400, color: 'var(--ink-soft)', marginLeft: 6 }}>(you)</span>}
+            </strong>
+          </div>
+        </td>
+        <td style={{ fontFamily: 'var(--mono)', fontSize: '12px', color: 'var(--ink-soft)' }}>{u.email}</td>
+        <td>
+          {isClient ? (
+            <span className="badge teal" style={{ fontSize: '11px', letterSpacing: '.04em', textTransform: 'uppercase' }}>
+              <span className="dot" />Client Reviewer
+            </span>
+          ) : !isSelf ? (
+            <select
+              value={roleVal}
+              disabled={roleChangeMutation.isPending}
+              onChange={e => roleChangeMutation.mutate({ id: u.id, role: e.target.value })}
+              style={{ padding: '5px 10px', border: '1px solid var(--line)', borderRadius: '7px', fontSize: '12.5px', background: 'var(--paper)', color: 'var(--ink)', cursor: 'pointer' }}
+            >
+              <option value="admin">Admin</option>
+              <option value="ba_pm">BA / PM</option>
+              <option value="client">Client Reviewer</option>
+            </select>
+          ) : (
+            <span className="badge violet"><span className="dot" />{ROLE_LABELS[roleVal] || roleVal}</span>
+          )}
+        </td>
+        <td>
+          <span className="badge green"><span className="dot" />Active</span>
+        </td>
+        <td style={{ color: 'var(--ink-soft)', fontSize: '13px' }}>
+          {relTime(u.created_at)}
+        </td>
+        <td>
+          {!isSelf && (
+            <button
+              className="btn btn-danger btn-xs"
+              disabled={deleteMutation.isPending}
+              onClick={() => {
+                if (window.confirm(`Remove ${u.name} from the workspace?`)) {
+                  deleteMutation.mutate(u.id)
+                }
+              }}
+            >
+              Remove
+            </button>
+          )}
+        </td>
+      </tr>
+    )
+  }
 
   return (
     <>
@@ -172,7 +259,7 @@ export default function TeamView() {
         <h3>Members ({users.length})</h3>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button className="btn btn-ghost btn-sm" onClick={() => setGeneratingLink(true)}>
-            🔗 Invite link
+            Invite link
           </button>
           <button className="btn btn-primary btn-sm" style={{ color: '#fff', background: 'var(--accent)' }} onClick={() => setInviting(true)}>
             + Add member
@@ -183,53 +270,25 @@ export default function TeamView() {
       <div className="panel">
         <table>
           <thead>
-            <tr><th>Member</th><th>Email</th><th>Role</th><th></th></tr>
+            <tr>
+              <th>Member</th>
+              <th>Email</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th>Last Active</th>
+              <th></th>
+            </tr>
           </thead>
           <tbody>
-            {users.map(u => {
-              const initials = getInitials(u.name)
-              const isSelf   = u.id === currentUser?.id
-              const badge    = ROLE_BADGE[u.role?.value || u.role] || 'gray'
-              const roleVal  = u.role?.value || u.role
-
-              return (
-                <tr key={u.id}>
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <span className={`avatar sm c-teal`}>{initials}</span>
-                      <strong>{u.name}{isSelf && <span style={{ fontWeight: 400, color: 'var(--ink-soft)', marginLeft: 6 }}>(you)</span>}</strong>
-                    </div>
-                  </td>
-                  <td style={{ fontFamily: 'var(--mono)', fontSize: '12px' }}>{u.email}</td>
-                  <td>
-                    {!isSelf ? (
-                      <select value={roleVal} disabled={roleChangeMutation.isPending}
-                        onChange={e => roleChangeMutation.mutate({ id: u.id, role: e.target.value })}
-                        style={{ padding: '5px 8px', border: '1px solid var(--line)', borderRadius: '7px', fontSize: '12.5px', background: 'var(--paper)', color: 'var(--ink)' }}>
-                        <option value="admin">Admin</option>
-                        <option value="ba_pm">BA / PM</option>
-                        <option value="client">Client Reviewer</option>
-                      </select>
-                    ) : (
-                      <span className={`badge ${badge}`}><span className="dot" />{ROLE_LABELS[roleVal] || roleVal}</span>
-                    )}
-                  </td>
-                  <td>
-                    {!isSelf && (
-                      <button className="btn btn-danger btn-xs"
-                        disabled={deleteMutation.isPending}
-                        onClick={() => {
-                          if (window.confirm(`Remove ${u.name} from the workspace?`)) {
-                            deleteMutation.mutate(u.id)
-                          }
-                        }}>
-                        Remove
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              )
-            })}
+            {internal.map(u => <MemberRow key={u.id} u={u} />)}
+            {clients.length > 0 && internal.length > 0 && (
+              <tr>
+                <td colSpan={6} style={{ padding: '6px 12px', background: 'var(--paper)', color: 'var(--ink-soft)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.06em', borderBottom: '1px solid var(--line)' }}>
+                  Client Reviewers
+                </td>
+              </tr>
+            )}
+            {clients.map(u => <MemberRow key={u.id} u={u} />)}
           </tbody>
         </table>
       </div>
@@ -238,14 +297,15 @@ export default function TeamView() {
         <div className="set-card">
           <h4>Role permissions</h4>
           {[
-            ['Admin',          'Full access — manage team, projects, feasibility overrides'],
-            ['BA / PM',        'Create projects, upload files, advance stages, view all PRDs'],
-            ['Client Reviewer','View assigned project PRD, leave comments, approve/request changes'],
-          ].map(([role, desc]) => (
-            <div key={role} className="switchrow">
-              <span><b>{role}</b><small>{desc}</small></span>
-              <span className={`badge ${ROLE_BADGE[Object.keys(ROLE_LABELS).find(k => ROLE_LABELS[k] === role)] || 'gray'}`}>
-                <span className="dot" />{users.filter(u => (u.role?.value || u.role) === Object.keys(ROLE_LABELS).find(k => ROLE_LABELS[k] === role)).length} users
+            ['admin',  'Admin',          'Full access — manage team, projects, feasibility overrides'],
+            ['ba_pm',  'BA / PM',        'Create projects, upload files, advance stages, view all PRDs'],
+            ['client', 'Client Reviewer','View assigned project PRD, leave comments, approve/request changes'],
+          ].map(([key, label, desc]) => (
+            <div key={key} className="switchrow">
+              <span><b>{label}</b><small>{desc}</small></span>
+              <span className="badge gray">
+                <span className="dot" />
+                {users.filter(u => (u.role?.value || u.role) === key).length} users
               </span>
             </div>
           ))}

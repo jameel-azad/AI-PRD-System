@@ -28,9 +28,9 @@ export function apiProjectToStore(p) {
     deadline: '—',
     updated: p.created_at ? new Date(p.created_at).toLocaleDateString() : '—',
     deploy: 'SaaS',
-    approver: '—',
+    approver: p.owner_name || '—',
     stage: STAGE_TO_INDEX[p.stage] ?? 0,
-    team: [],
+    team: p.owner_id ? [p.owner_id] : [],
     sources: [],
     tag: `${p.requirement_count ?? 0} requirements`,
     sections: new Array(14).fill(0),
@@ -92,10 +92,33 @@ const useProjectStore = create((set, get) => ({
     set({ loading: true })
     try {
       const { data } = await projectsApi.list({ limit: PAGE_SIZE, offset: 0 })
-      const users = currentUser ? [currentUserEntry(currentUser)] : []
+
+      // Build users map from project owners (deduped by id)
+      const ownerMap = new Map()
+      data.forEach(p => {
+        if (p.owner_id && p.owner_name && !ownerMap.has(p.owner_id)) {
+          const role = toStoreRole(p.owner_role || 'ba_pm')
+          ownerMap.set(p.owner_id, {
+            id: p.owner_id,
+            name: p.owner_name,
+            email: '',
+            role,
+            roleLabel: ROLE_LABELS[role] || role,
+            color: ROLE_COLORS[role] || 'c-teal',
+            status: 'Active',
+            last: '—',
+          })
+        }
+      })
+      // Current user takes precedence; merge in owners not already in the list
+      const usersList = currentUser ? [currentUserEntry(currentUser)] : []
+      ownerMap.forEach((entry, id) => {
+        if (!usersList.some(u => u.id === id)) usersList.push(entry)
+      })
+
       set({
         projects: data.map(apiProjectToStore),
-        users,
+        users: usersList,
         hasMore: data.length === PAGE_SIZE,
         nextOffset: PAGE_SIZE,
         loading: false,

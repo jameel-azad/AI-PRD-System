@@ -53,6 +53,12 @@ export default function LoginPage() {
     setSiLoading(true)
     try {
       const { data } = await auth.login({ email: siEmail.trim(), password: siPwd })
+      const roleMap = { bapm: 'ba_pm', admin: 'admin', client: 'client' }
+      if (data.user?.role !== roleMap[loginRole]) {
+        const selected = DEMO_ROLES.find(r => r.value === loginRole)?.label ?? loginRole
+        setError(`This account doesn't have ${selected} access. Select the correct role and try again.`)
+        return
+      }
       login(data)
       navigate('/')
       showToast('Signed in · access logged to audit trail')
@@ -179,7 +185,7 @@ export default function LoginPage() {
             <p className="lead">Use your work account or SSO. The client portal requires sign-in — there are no anonymous links.</p>
 
             <div className="role-pick">
-              <div className="rp-label">Sign in as (demo)</div>
+              <div className="rp-label">Sign in as</div>
               <div className="role-opts">
                 {DEMO_ROLES.map(r => (
                   <label key={r.value} className={loginRole === r.value ? 'selected' : ''}>
