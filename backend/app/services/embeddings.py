@@ -1,8 +1,12 @@
-import google.generativeai as genai
+# Gemini embeddings — commented out, using OpenAI
+# import google.generativeai as genai
+# genai.configure(api_key=settings.GEMINI_API_KEY)
+
+from openai import AsyncOpenAI
 
 from app.core.config import settings
 
-genai.configure(api_key=settings.GEMINI_API_KEY)
+_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
 CHUNK_SIZE    = 1500   # characters
 CHUNK_OVERLAP = 200
@@ -19,9 +23,12 @@ def chunk_text(text: str) -> list[str]:
 
 
 async def embed_text(text: str) -> list[float]:
-    result = genai.embed_content(
-        model=settings.GEMINI_EMBEDDING_MODEL,
-        content=text,
-        task_type="retrieval_document",
+    # dimensions=768 matches the pgvector column size (originally sized for Gemini
+    # text-embedding-004). text-embedding-3-small supports arbitrary dimension
+    # reduction so no DB migration is needed.
+    response = await _client.embeddings.create(
+        model=settings.OPENAI_EMBEDDING_MODEL,
+        input=text,
+        dimensions=768,
     )
-    return result["embedding"]
+    return response.data[0].embedding

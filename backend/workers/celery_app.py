@@ -8,11 +8,11 @@ app = Celery(
 )
 
 app.conf.task_routes = {
-    "workers.tasks.transcribe_file": {"queue": "transcription"},
+    "workers.tasks.transcribe_file":      {"queue": "transcription"},
     "workers.tasks.extract_requirements": {"queue": "extraction"},
-    "workers.tasks.generate_prd": {"queue": "prd"},
+    "workers.tasks.generate_prd":         {"queue": "prd"},
     "workers.tasks.check_and_generate_prd": {"queue": "prd"},
-    "run_ai_pipeline": {"queue": "prd"},
+    # run_ai_pipeline and regenerate_prd use the default "celery" queue
 }
 
 app.conf.update(

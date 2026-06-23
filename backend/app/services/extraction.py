@@ -30,7 +30,7 @@ Classify each extracted item into exactly one of these types:
 ## PRD section mapping
 
 Map every item to exactly one of these section keys:
-  "project_overview" | "business_objectives" | "stakeholders" | "scope" |
+  "project_overview" | "business_objectives" | "stakeholders_personas" | "scope" |
   "functional_requirements" | "non_functional_requirements" | "user_stories" |
   "technical_constraints" | "data_requirements" | "timeline_milestones" |
   "assumptions_dependencies" | "glossary"
@@ -69,8 +69,8 @@ Return each item as a JSON object with exactly these fields:
    ("it should support login via email and via Google SSO"), split them into two separate
    JSON objects, not one combined sentence.
 3. **Deduplicate within this chunk only.** If the same requirement is restated twice in this
-   same chunk, return it once. (Cross-chunk deduplication happens later in the pipeline —
-   you do not need to worry about other chunks.)
+   same chunk, return it once. Cross-chunk and cross-file deduplication is handled by
+   exact-text and semantic similarity checks in chunk_and_extract before DB save.
 4. **Preserve negatives and exclusions.** "We do NOT need multi-currency support" is a real
    constraint/scope item — extract it, do not discard it just because it's negative.
 5. **Vague filler is not a requirement.** Statements like "let's make it good" or "it should

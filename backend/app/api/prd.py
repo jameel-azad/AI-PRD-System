@@ -142,3 +142,20 @@ async def get_approvals(
         {"id": a.id, "status": a.status, "comment": a.comment, "approver_id": a.approver_id, "created_at": a.created_at}
         for a in rows
     ]
+
+
+@router.post("/{project_id}/regenerate")
+async def regenerate_prd(
+    project_id: int,
+    current_user: User = Depends(require_role(UserRole.ba_pm, UserRole.admin)),
+    db: AsyncSession = Depends(get_db),
+):
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    if project.stage == ProjectStage.approved:
+        raise HTTPException(409, "Cannot regenerate an approved PRD")
+
+    from app.workers.tasks import regenerate_prd as regenerate_prd_task
+    task = regenerate_prd_task.delay(project_id)
+    return {"status": "queued", "task_id": task.id}

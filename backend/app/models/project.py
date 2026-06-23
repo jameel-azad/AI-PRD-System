@@ -24,6 +24,10 @@ class Project(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str]
     client_org: Mapped[str]
+    country: Mapped[Optional[str]] = mapped_column(nullable=True)
+    industry: Mapped[Optional[str]] = mapped_column(nullable=True)
+    deployment_type: Mapped[Optional[str]] = mapped_column(nullable=True)
+    approver_email: Mapped[Optional[str]] = mapped_column(nullable=True)
     stage: Mapped[ProjectStage] = mapped_column(
         SAEnum(ProjectStage, name="projectstage"), default=ProjectStage.intake
     )

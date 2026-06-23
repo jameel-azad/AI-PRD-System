@@ -29,9 +29,25 @@ class TranscriptionError(Exception):
     """Raised when transcription fails after all retries are exhausted."""
 
 
+def _check_ffmpeg() -> None:
+    """Raise TranscriptionError immediately if ffmpeg or ffprobe is missing."""
+    import shutil
+    missing = [tool for tool in ("ffmpeg", "ffprobe") if not shutil.which(tool)]
+    if missing:
+        raise TranscriptionError(
+            f"{', '.join(missing)} not found in PATH. "
+            "Install ffmpeg to enable audio/video transcription "
+            "(Windows: `choco install ffmpeg`, Linux: `apt install ffmpeg`)."
+        )
+
+
 def _run_ffmpeg(cmd: list[str], context: str) -> None:
     try:
         subprocess.run(cmd, check=True, capture_output=True)
+    except FileNotFoundError as exc:
+        raise TranscriptionError(
+            "ffmpeg not found — install it and restart the server"
+        ) from exc
     except subprocess.CalledProcessError as exc:
         stderr = exc.stderr.decode(errors="replace") if exc.stderr else ""
         logger.error("%s failed: %s", context, stderr[-2000:])  # last 2KB, ffmpeg errors are verbose
@@ -171,6 +187,8 @@ async def transcribe(storage_key: str) -> dict:
         this, mark the source_file status as 'failed', and surface it to the BA/PM
         rather than letting the exception propagate unhandled.
     """
+    _check_ffmpeg()
+
     with tempfile.TemporaryDirectory() as tmpdir:
         raw_path = os.path.join(tmpdir, "input.tmp")
         await _download_with_retry(storage_key, raw_path)

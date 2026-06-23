@@ -169,6 +169,31 @@ async def send_gap_review_needed(
     )
 
 
+async def send_prd_regenerated(
+    project_name: str,
+    owner_email: str,
+    owner_name: str,
+    version: int,
+    gap_count: int,
+    comment_count: int,
+    project_id: int,
+) -> None:
+    """Sent to the project owner when a PRD is regenerated from gap answers and resolved comments."""
+    first = owner_name.split()[0] if owner_name else "there"
+    body = f"""
+    <p>Hi {first},</p>
+    <p>The PRD for <strong>{project_name}</strong> has been regenerated
+    (version {version}) incorporating <strong>{gap_count} gap answer{'' if gap_count == 1 else 's'}</strong>
+    and <strong>{comment_count} resolved comment{'' if comment_count == 1 else 's'}</strong>.</p>
+    <a class="btn" href="{_project_link(project_id)}">Open PRD →</a>
+    <p>Review the updated document and advance the project when ready.</p>"""
+    await _send(
+        owner_email,
+        f"PRD updated — {project_name}",
+        _wrap(f"PRD regenerated (v{version})", body),
+    )
+
+
 async def send_feasibility_flag(
     project_name: str,
     owner_email: str,

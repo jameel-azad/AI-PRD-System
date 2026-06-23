@@ -1,0 +1,298 @@
+XCCELERA CONSULTING — CLIENT DISCOVERY SESSION
+Project: PhonePay Payment Super-App
+Date: June 23, 2026
+Duration: 3 hours 12 minutes
+Participants:
+  - Ravi Shankar (Client — Chief Product Officer, PhonePay)
+  - Ananya Iyer (Client — VP Engineering, PhonePay)
+  - Deepak Mehta (Client — Head of Compliance & Legal)
+  - Priya Nair (Client — Product Manager, Payments)
+  - Arjun Kapoor (Xccelera — Lead Business Analyst)
+  - Sunita Rao (Xccelera — Solutions Architect)
+  - Mihir Shah (Xccelera — Project Manager)
+
+---
+
+ARJUN KAPOOR: Good morning everyone, thanks for making the time. We're here to capture all the requirements for the PhonePay super-app. Let's start with the big picture — Ravi, can you walk us through what you're trying to build?
+
+RAVI SHANKAR: Sure. So PhonePay today is a simple peer-to-peer UPI app. We have about 8 million registered users, roughly 2.5 million monthly actives. The vision for this new version is to turn it into a complete financial super-app. We want to add credit cards, debit cards, BNPL — buy now pay later — wallet top-ups, utility bill payments, mobile recharges, insurance premium collection, and eventually a savings account integration. The big differentiator is a unified transaction inbox, so the user sees every money movement — whether it's UPI, card, wallet, EMI — in one timeline. That's the core of the experience.
+
+ARJUN KAPOOR: Got it. And when you say 8 million users, are you expecting that to grow significantly after launch?
+
+RAVI SHANKAR: We're targeting 25 million registered users within 18 months of launch. We're doing a heavy marketing push. Peak concurrent users — so simultaneous active sessions — we're expecting around 150,000 at the absolute peak. Think salary credit day, festival season like Diwali, end-of-month bill rushes. Those are the spikes we have to handle.
+
+SUNITA RAO: When you say 150,000 concurrent, is that across all features or specifically the payment flow?
+
+RAVI SHANKAR: Specifically the payment initiation and confirmation flow. The rest of the app — browsing, history — can be a bit slower, that's fine.
+
+SUNITA RAO: And what's your acceptable latency for payment initiation?
+
+RAVI SHANKAR: UPI transactions must complete end-to-end in under 4 seconds. Card transactions — because of the payment network overhead — we'll accept up to 8 seconds. But the user must see a clear "processing" indicator within 1 second of tapping Pay. That responsiveness is non-negotiable.
+
+ANANYA IYER: I'd add that the payment status confirmation — the green tick or red X — must appear within 2 seconds of the bank's response. We've seen competitors take 10-15 seconds to show confirmation even after the bank has already processed it. That's a UX failure we want to avoid completely.
+
+ARJUN KAPOOR: Noted. Priya, you want to walk us through the user flows?
+
+PRIYA NAIR: Yes. So there are six primary user flows we've identified. First is UPI send money — user enters UPI ID or scans QR, enters amount, authenticates with UPI PIN, gets confirmation. Second is UPI collect request — user sends a collect request to another UPI ID, the recipient approves or declines, payer gets notified. Third is card payments — user stores a card, enters card number, expiry, CVD — and then pays. Cards must never be stored as raw numbers on our servers. We'll tokenize everything via Razorpay or a PCI-compliant vault. Fourth is wallet top-up and wallet payment. Fifth is bill payments — electricity, water, gas, DTH, broadband. We'll integrate with BBPS — the Bharat Bill Payment System — for this. Sixth is mobile recharge — prepaid top-up, plan purchase, data add-ons.
+
+ARJUN KAPOOR: What about BNPL — buy now pay later?
+
+PRIYA NAIR: That's a phase two feature. We want to launch with the six core flows, get stability, and then layer in BNPL in the second quarter post-launch. The platform architecture must support it being added though — the transaction model has to be extensible.
+
+DEEPAK MEHTA: I need to jump in here on the compliance side because it affects architecture significantly. For card storage, we are absolutely PCI DSS Level 1 compliant — that means no raw PANs — primary account numbers — stored anywhere in our infrastructure. We tokenize at the point of entry. The tokenization must happen before the data ever hits our application layer. I've seen architectures where the PAN passes through the app backend before being sent to the vault — that's non-compliant and we cannot do that.
+
+SUNITA RAO: Are you mandating a specific vault provider?
+
+DEEPAK MEHTA: We have a preference for Razorpay Token HQ or MasterCard's MDES network. But architecturally, the integration point must be abstract enough that we can swap providers. Legal is still evaluating costs.
+
+DEEPAK MEHTA: Second compliance item — KYC. Under RBI's new guidelines as of 2025, any wallet that holds more than 10,000 rupees requires full video KYC. Below that threshold, minimum KYC — just Aadhaar OTP — is sufficient. The system must track each user's KYC tier and enforce wallet balance limits dynamically. If a user's balance approaches 10,000 rupees we need to prompt them to complete video KYC or we block further top-ups.
+
+ARJUN KAPOOR: What's the user experience for video KYC — is it in-app or redirected?
+
+DEEPAK MEHTA: It must be in-app. We cannot redirect to an external URL for KYC — too much drop-off. We'll integrate with a vendor like Hyperverge or IDfy via their SDK. The SDK captures the selfie, ID document, and liveness check. Results come back via webhook. The system must handle async KYC results — the user shouldn't have to wait in the app.
+
+PRIYA NAIR: And on that note, notifications. We need push notifications, in-app notifications, and SMS for all transactional events. Push and in-app are P0 — they must be present at launch. SMS is P1 — we'll handle that post-launch. Email notifications are P2.
+
+RAVI SHANKAR: Every payment success and failure must trigger a push notification within 5 seconds of the event. Not eventually consistent — within 5 seconds. Our users complain about this constantly with our current app.
+
+ARJUN KAPOOR: Okay. Let me ask about authentication. What's the auth model?
+
+ANANYA IYER: Multi-factor. At registration, user enters mobile number, receives OTP, verifies. Then they set a 6-digit MPIN — Mobile PIN — for app login. The MPIN is separate from the UPI PIN. So the user has: MPIN to open the app, UPI PIN to authenticate payments. For cards, we add another layer — card CVV or OTP from the bank for the first transaction with a new card, and then tokenized for subsequent transactions.
+
+RAVI SHANKAR: The MPIN must be stored as a salted hash. Never plaintext. Actually, nothing sensitive — MPIN, UPI PIN mappings, card tokens — should ever appear in application logs. This has to be enforced at the framework level.
+
+DEEPAK MEHTA: Also, MPIN lockout policy: 5 failed attempts in a row locks the account for 24 hours and sends an SMS alert. Account unlock requires OTP on registered mobile number.
+
+ARJUN KAPOOR: Sessions — what's the timeout policy?
+
+ANANYA IYER: The app session expires after 10 minutes of inactivity. Background token refresh is fine, but if the user hasn't touched the app for 10 minutes, they re-enter MPIN to unlock. For web — if we ever build a web interface — it's the same but with a stricter 5-minute timeout given the browser environment.
+
+ARJUN KAPOOR: Speaking of multi-platform — what platforms are you targeting?
+
+RAVI SHANKAR: Android first. Minimum Android 8.0 — API level 26. iOS second, minimum iOS 14. We have a 60-40 Android-iOS user split currently, so Android gets more QA attention. No web app at launch, but the API must be designed so a web frontend can be built later without changes to the backend.
+
+PRIYA NAIR: Also — language support. At launch we need English and Hindi. Within 6 months of launch we need to add Tamil, Telugu, Marathi, Bengali, and Kannada. The copy system in the app must support runtime language switching — user can change language without restarting the app.
+
+ARJUN KAPOOR: Let's talk about the transaction history and analytics — what does that look like?
+
+PRIYA NAIR: The unified transaction inbox is a reverse-chronological timeline of all money movements. Every entry shows: counterparty name or logo, amount, transaction type — UPI/card/wallet/bill — status, timestamp, and reference number. User can tap any transaction to see full details including bank reference number, payment method details, and any failure reason if it failed.
+
+RAVI SHANKAR: Filters are important. The user must be able to filter by: date range, transaction type, status — success/pending/failed — and amount range. The filter combination must persist across sessions — user sets a filter, closes the app, opens it again, the filter is still applied.
+
+PRIYA NAIR: Search is also a P0 feature. Full-text search across transaction notes, payee names, and UPI IDs. Search results must return in under 2 seconds for up to 2 years of history.
+
+ANANYA IYER: From a data perspective — we retain transaction data for 7 years to comply with FEMA and Income Tax regulations. The system architecture must account for this. Hot storage for the last 12 months, warm storage for months 13-36, cold archival for years 3-7. Retrieval from cold storage can take up to 30 seconds — that's acceptable, but the UI must show a "fetching older records" loading state.
+
+ARJUN KAPOOR: What about disputes and refunds?
+
+PRIYA NAIR: For UPI transactions, the user can raise a dispute within 30 days of the transaction. The dispute form captures: reason — transaction not received, wrong amount, merchant fraud — a description, and optionally a screenshot. The dispute gets assigned to our ops team and the user gets a case number. The user can track dispute status in-app. Resolution SLA is 7 business days per NPCI guidelines.
+
+RAVI SHANKAR: For card transactions, the dispute goes to the card network — Visa or Mastercard — via the acquiring bank. We don't handle card chargebacks directly. But the user must be able to initiate the chargeback request through our app, and we pass it to Razorpay who routes it to the acquiring bank.
+
+DEEPAK MEHTA: Refunds — automatic refunds for failed UPI transactions must be processed within T+1 business day as per RBI mandate. The system must track refund status and proactively notify the user if a refund is delayed beyond T+3.
+
+ARJUN KAPOOR: Let's cover the merchant-side features.
+
+RAVI SHANKAR: We have two merchant tiers. Small merchants — think a chai stall — they just need a static QR code and a simple dashboard showing recent payments. Medium merchants — think a retail store — they need a POS integration, dynamic QR generation per transaction, daily settlement reports, and GST invoice generation. Large merchants are out of scope for phase one — that's an enterprise product we'll build separately.
+
+PRIYA NAIR: For merchant onboarding, small merchants complete a simplified KYC — GST number or Udyam registration, bank account for settlement, PAN card. Medium merchants go through full GST verification, partnership deed or incorporation certificate, and two-day manual review by our merchant ops team.
+
+SUNITA RAO: What's the settlement cycle for merchants?
+
+RAVI SHANKAR: Small merchants: T+2 settlement. Medium merchants: T+1. Both must receive a settlement notification via SMS and email with a transaction-level breakdown. The settlement report must be downloadable as PDF and Excel.
+
+ARJUN KAPOOR: Now let's talk about fraud and risk.
+
+ANANYA IYER: We need real-time fraud scoring for every payment. Every transaction above 1000 rupees gets a risk score computed before the payment is routed to the bank. Score computation must complete in under 200 milliseconds — it cannot be on the payment critical path in a way that slows down the transaction. If the score is above 0.8, we auto-decline and flag for review. If it's between 0.5 and 0.8, we add a step-up authentication — user gets OTP in addition to UPI PIN. Below 0.5, normal flow.
+
+RAVI SHANKAR: The fraud model inputs are: device fingerprint, transaction velocity — how many transactions in the last 10 minutes, 1 hour, 24 hours — amount deviation from user's historical average, payee reputation — is this UPI ID associated with known fraud, and geolocation anomaly — is the user suddenly transacting from a different city than usual.
+
+ANANYA IYER: Device fingerprint must be stable across app reinstalls using the same hardware. We'll use a combination of hardware identifiers that survive reinstallation. The device fingerprint must be stored encrypted and must not include data that uniquely identifies the user to a third party without consent under the DPDP Act — the Digital Personal Data Protection Act 2023.
+
+DEEPAK MEHTA: DPDP compliance is a hard requirement. Every piece of personal data we collect needs a stated purpose. Users must be able to request a copy of all their data within 72 hours — that's a data portability request. Users must be able to request deletion of their account and data — right to be forgotten — except for data we're legally required to retain like transaction records under FEMA. The system must track consent records — when did the user consent to what — with timestamps and version numbers of our privacy policy.
+
+ARJUN KAPOOR: Admin dashboard — what does your ops team need?
+
+PRIYA NAIR: The ops dashboard is a separate web application, not part of the consumer app. It needs: user management — look up any user by mobile or email, view their KYC status, transaction history, account status. Transaction monitoring — view all transactions in real-time with filters, flag suspicious ones, initiate manual refunds. Dispute management — see all open disputes, assign them, update status, communicate with the user. Merchant management — approve, suspend, set limits. And a metrics dashboard — daily active users, transaction volumes, success rates, average transaction value, top failure reasons.
+
+RAVI SHANKAR: The ops dashboard must have role-based access. Roles: Super Admin — full access including user deletion. Ops Manager — all except user deletion. Customer Support Agent — read-only transaction history, can raise refunds up to 10,000 rupees. Compliance Officer — can export data for regulatory reports, read-only everything else.
+
+SUNITA RAO: Are there any existing internal systems the ops dashboard needs to integrate with?
+
+ANANYA IYER: Yes — our Jira instance for dispute ticket creation, our Slack workspace for fraud alerts, and our existing Tableau dashboards. Jira and Slack integration at launch. Tableau — we'll export CSV data and they can build dashboards themselves, that's phase two.
+
+ARJUN KAPOOR: Let's talk infrastructure and scalability.
+
+ANANYA IYER: We're going cloud-native on AWS. Primary region: ap-south-1 — Mumbai. Disaster recovery region: ap-southeast-1 — Singapore. RTO — Recovery Time Objective — is 4 hours. RPO — Recovery Point Objective — is 15 minutes. The DR region must have a warm standby that can take traffic within 30 minutes of a Mumbai outage.
+
+SUNITA RAO: Are you considering multi-region active-active or active-passive?
+
+ANANYA IYER: Active-passive for now. Active-active adds complexity we're not ready for. But the architecture must not preclude moving to active-active in the future.
+
+RAVI SHANKAR: 99.9% uptime SLA for the payment API. That's about 8.7 hours of allowed downtime per year. Planned maintenance windows must be between 2 AM and 5 AM IST and must be pre-announced to users via in-app banner 48 hours in advance.
+
+ANANYA IYER: Database — we're going with PostgreSQL on RDS with read replicas. The primary handles all writes. Read replicas handle transaction history queries, analytics, search. Auto-scaling on the application tier. The payment processing service must be stateless so it can scale horizontally. No sticky sessions anywhere in the payment flow.
+
+ARJUN KAPOOR: What about message queues and async processing?
+
+ANANYA IYER: We're using SQS for webhook processing — bank callbacks, NPCI notifications. All webhooks are consumed off a queue, not processed synchronously. Dead letter queue for failed webhook processing with a 3-retry policy. Failed webhooks after 3 retries get escalated to PagerDuty. We're also considering Kafka for the real-time fraud scoring pipeline — we need sub-200ms scoring and Kafka gives us the throughput.
+
+ARJUN KAPOOR: Let's discuss the API design.
+
+ANANYA IYER: RESTful APIs with JSON. API versioning from day one — /api/v1/ prefix. Rate limiting: 100 requests per minute per authenticated user, 10 requests per minute per IP for unauthenticated endpoints. The payment initiation endpoint has a separate rate limit of 10 requests per minute per user — we don't want anyone able to spam transactions. All APIs must return standardized error responses with a machine-readable error code and human-readable message.
+
+SUNITA RAO: Are you doing a BFF — Backend for Frontend — pattern or a single API?
+
+ANANYA IYER: Single API at launch, but designed so we can introduce a BFF layer later. The consumer app and the merchant app will hit the same API but with different JWT token scopes. Admin dashboard will have its own authentication and a separate set of admin-only endpoints.
+
+RAVI SHANKAR: API documentation is a hard requirement. We use Swagger/OpenAPI. Every endpoint must be documented including error codes. The Swagger UI must be available in the staging environment. Production must not expose Swagger UI publicly.
+
+ARJUN KAPOOR: Now let me ask about integration with banking partners and NPCI.
+
+ANANYA IYER: We're a Payment Service Provider — PSP — not a bank. We go through a sponsor bank for UPI connectivity. Our sponsor bank is ICICI Bank. The NPCI UPI switch connection is managed by ICICI on our behalf. The integration is via APIs with ICICI's payment gateway. We receive callbacks for transaction status via HTTPS webhooks.
+
+RAVI SHANKAR: For card acquiring, we're using Razorpay as the payment gateway. Card payment flow: user enters card details, Razorpay tokenizes, we store the token with Razorpay's vault reference, all subsequent payments use the token. We never see the PAN after the initial tokenization step.
+
+DEEPAK MEHTA: For international cards — Visa and Mastercard international cards — there's an additional 3D Secure step. The 3DS authentication must be embedded in-app using the 3DS SDK — not a browser redirect. That's a hard requirement from our card network agreements.
+
+ARJUN KAPOOR: What about the BBPS integration for bill payments?
+
+PRIYA NAIR: We connect to BBPS via a BBPS Operating Unit — we're using BillJunction as our BBPS OU. The integration is via their API. Supported biller categories at launch: electricity — all major DISCOMs, broadband — Jio, Airtel, BSNL, DTH — Tata Play, Dish TV, Airtel Digital TV, mobile recharge — all operators, piped gas — Mahanagar Gas and Indraprastha Gas, water — municipal corporations in Tier 1 cities. We will expand to more billers post-launch but the integration architecture must support adding new billers without code changes — just configuration.
+
+RAVI SHANKAR: Biller fetch — the user enters their consumer ID and we fetch their outstanding bill amount before they pay. The fetch must complete in under 3 seconds. If the biller's API is slow, we show a cached bill amount from the last successful fetch with a "last updated" timestamp. Never block the user from paying due to a slow biller API.
+
+ARJUN KAPOOR: Let's talk about UX and design constraints.
+
+PRIYA NAIR: Design system is based on Material Design 3. Brand colors are deep blue — hex 1A237E — and golden yellow — FFC107. Dark mode is a P1 feature — not at launch, but by month 3. Accessibility — WCAG 2.1 AA compliance. Minimum touch target size 44px. All images must have alt text. Screen reader compatibility with TalkBack on Android and VoiceOver on iOS.
+
+RAVI SHANKAR: Onboarding must be completable in under 2 minutes for a typical user. The flow: download app, enter mobile number, OTP, set MPIN, add UPI ID, optional KYC prompt. The KYC prompt is skippable at this stage — we ask again when the wallet balance approaches the threshold.
+
+PRIYA NAIR: Offboarding — account deletion. The user must be able to delete their account in-app. The deletion is soft-delete initially — 30 days to reverse. After 30 days, hard delete of personal data but transaction records are retained per FEMA compliance. During the 30-day grace period, the user's UPI ID is deactivated — they cannot send or receive — but their transaction history remains visible to them.
+
+ARJUN KAPOOR: What analytics and monitoring do you need from an operational perspective?
+
+ANANYA IYER: Application performance monitoring via AWS CloudWatch and Datadog. Key metrics tracked every minute: transaction success rate — target 98.5% — average latency for payment initiation, error rate by error code, API response time P50/P95/P99. Alerts: PagerDuty if success rate drops below 95% for 5 consecutive minutes. PagerDuty if P99 latency exceeds 10 seconds for 5 consecutive minutes. Slack alert for less critical issues.
+
+RAVI SHANKAR: Business metrics on a dashboard: daily active users, daily transaction count, daily transaction value, daily new registrations, funnel conversion — how many users who opened the app completed a transaction. This dashboard must be real-time — under 5 minute lag from event to dashboard.
+
+ARJUN KAPOOR: Testing requirements?
+
+ANANYA IYER: Unit test coverage minimum 80% for backend services. End-to-end test suite covering the 6 primary payment flows. Load testing must simulate 150,000 concurrent users — we'll use k6 or Locust. Load test must be run before every major release and results reviewed by the engineering VP before sign-off.
+
+PRIYA NAIR: UAT — User Acceptance Testing — environment must be maintained separately from staging and production. UAT environment uses bank sandbox APIs — ICICI sandbox for UPI, Razorpay test mode for cards. All test cards and UPI IDs from NPCI's test suite must work in UAT.
+
+ARJUN KAPOOR: Data privacy and security beyond what we've covered?
+
+DEEPAK MEHTA: TLS 1.2 minimum everywhere. TLS 1.3 preferred. Certificate pinning on the mobile app — prevents MITM attacks. The app must detect rooted or jailbroken devices and warn the user — we won't block outright, but we log the fact that a high-risk transaction was made from a compromised device. All data at rest encrypted using AES-256. Key management via AWS KMS. No hardcoded secrets in the codebase — all configuration via environment variables or AWS Secrets Manager. Security scanning — SAST via SonarQube, DAST via OWASP ZAP — must be integrated into the CI/CD pipeline and any high or critical findings must block deployment.
+
+ANANYA IYER: Penetration testing — external pentest before the public launch and annually thereafter. Pentest report must be shared with Deepak's team. Bug bounty program post-launch via HackerOne — we'll set that up in month 2.
+
+ARJUN KAPOOR: What are the key milestones and timeline?
+
+RAVI SHANKAR: Target is to launch on September 15, 2026 — the week before Navratri because we expect high transaction volumes during the festival. That's approximately 85 days from today.
+
+Working backwards: Alpha — all 6 core payment flows working end-to-end in UAT, no P0 bugs — by August 1. Beta — closed beta with 10,000 selected users, load testing done, security scan clean — by August 25. Launch — September 15.
+
+PRIYA NAIR: Critical path items that could delay launch: NPCI UPI certification — that process takes 6-8 weeks and must start this week. PCI DSS audit — external auditor takes 4-6 weeks. Video KYC vendor selection — we need to sign the contract by June 30. BBPS OU agreement with BillJunction — that's already in progress, expected to close by June 30.
+
+ARJUN KAPOOR: Let me ask about the team structure. Who are the key stakeholders from your side?
+
+RAVI SHANKAR: I'm the product decision authority. Anything that changes scope, timeline, or major UX — comes to me. Ananya owns all technical decisions. Deepak is the final authority on compliance — if he says something must change for compliance, it changes, full stop. Priya owns day-to-day product — she's the point of contact for sprint planning, feature clarifications, acceptance criteria.
+
+ANANYA IYER: On the technical side, we have 8 backend engineers, 5 Android engineers, 4 iOS engineers, 3 DevOps, 2 QA. Not all of them will be on this project full time — they're spread across other projects. The Xccelera team will need to work closely with our backend lead — Vikram Nair — and our Android lead — Rahul Agarwal.
+
+ARJUN KAPOOR: Any specific technical constraints we haven't covered?
+
+ANANYA IYER: We have a microservices architecture. The services are: Auth Service, Payments Service — UPI, Payments Service — Cards, Wallet Service, Notifications Service, KYC Service, Dispute Service, Merchant Service, Analytics Service. Each service has its own database. Cross-service communication is via REST APIs internally, with service-to-service authentication via JWT with internal signing keys rotated every 24 hours.
+
+No shared database between services. This is a hard constraint. If the Payments Service and the Wallet Service both need user balance information, one of them calls the other's API — they do not share a database. Event sourcing via SQS for eventual consistency where needed.
+
+SUNITA RAO: How are you handling distributed transactions? For example, a wallet-to-UPI payment where wallet is debited but UPI fails?
+
+ANANYA IYER: Saga pattern. Each step in a multi-service transaction has a compensating transaction. The orchestration layer tracks state. If UPI payment fails after wallet debit, the compensating transaction credits the wallet back. The saga state must be persisted — it survives a service restart. We're implementing this ourselves rather than using a library, so the design must be clear.
+
+RAVI SHANKAR: I want to emphasize one thing before we wrap up. The experience of our existing 8 million users must not be disrupted. The migration from the current app to the new app must be seamless. Existing UPI IDs must work. Existing linked bank accounts must transfer. Existing transaction history must be visible. If we're migrating the database, it must be done with zero downtime — no maintenance window that affects users. The data migration plan must be reviewed by Deepak and Ananya before we finalize any timelines.
+
+ARJUN KAPOOR: Any assumptions you've made that you want to explicitly state?
+
+PRIYA NAIR: Assumption: the UPI mandate for linked bank accounts will remain stable through the launch — no regulatory changes from NPCI. Assumption: ICICI Bank's sandbox environment will be available for testing from July 1. Assumption: Razorpay does not change their tokenization API in the next 6 months.
+
+DEEPAK MEHTA: Assumption: the DPDP Act implementing rules will be published by August 2026. If they're not, we proceed with our current interpretation of the Act. If rules are published and require changes, that's a scope change that affects timeline.
+
+ANANYA IYER: Technical assumption: AWS ap-south-1 capacity will be available for our expected scaling needs. We've had capacity issues in the past during peak times. We're pre-purchasing Reserved Instances to mitigate.
+
+RAVI SHANKAR: Business assumption: our NPCI application for PA — Payment Aggregator — license is approved. We submitted in April. If it's not approved by August 15, we may need to restructure the card payments architecture to operate under a partner PA license rather than our own.
+
+ARJUN KAPOOR: Any open questions or items we haven't addressed?
+
+PRIYA NAIR: We haven't talked about rewards and cashback. PhonePay currently offers 1% cashback on UPI transactions up to 50 rupees per transaction capped at 200 rupees per month. We want to continue this for the new app and potentially expand it. But rewards is a separate module — it's P1 for us. It needs to be architecturally considered but not built for launch.
+
+RAVI SHANKAR: Customer support integration. We're using Freshdesk for customer support. The app must have a help section that opens Freshdesk's in-app SDK. Common FAQs are surfaced directly in the app. If the user can't find their answer, they can raise a ticket via the SDK. Support agents in Freshdesk must be able to see the user's transaction history when the user raises a ticket — that requires a Freshdesk-to-backend API integration.
+
+ANANYA IYER: We also need a feature flag system. Rollouts are percentage-based — we release to 5% of users, monitor for 48 hours, then roll out to 100% if metrics are healthy. The feature flag system must support user-based targeting — we can target specific user IDs for internal testing. We're evaluating LaunchDarkly and a home-grown Redis-based solution.
+
+DEEPAK MEHTA: One more compliance item I forgot — transaction SMS logs. RBI requires that we maintain logs of all payment-related SMSes sent to users for 1 year. The SMS service provider must provide us with delivery receipts and we must store those receipts. This is for audit purposes.
+
+ARJUN KAPOOR: Any concerns about the timeline that you want to flag right now?
+
+RAVI SHANKAR: The NPCI certification is my biggest risk. If that slips past August 15, launch slips. The UPI certification process is outside our control. We've engaged a consultant who specializes in NPCI certifications to help manage that process but there's no guarantee.
+
+ANANYA IYER: Technical risk — the distributed saga implementation for multi-service transactions. That's new territory for our team. We've implemented it in prototype but never at production scale. We need to allocate adequate time for load testing that specific flow.
+
+PRIYA NAIR: Resource risk — we're hiring 3 more Android developers. If those hires slip to August, we may need to descope some Android features for launch and deliver them as a fast-follow.
+
+ARJUN KAPOOR: Thank you everyone. This has been extremely comprehensive. Let me summarize the key points before we close.
+
+To summarize: We're building a payments super-app supporting UPI, card payments, wallet, and bill payments with a target of 150,000 peak concurrent users and 25 million registered users within 18 months. The system must process UPI payments in under 4 seconds end-to-end with confirmation within 2 seconds of bank response. Card data must be PCI DSS Level 1 compliant with no raw PANs stored. KYC is tiered — minimum KYC for wallets under 10,000 rupees, full video KYC above that. Authentication uses MPIN plus UPI PIN with 5-attempt lockout. The system must be DPDP Act compliant with data portability and right to deletion. Infrastructure is AWS with Mumbai primary and Singapore DR, 99.9% uptime SLA. Microservices architecture with saga pattern for distributed transactions. Target launch September 15, 2026 with Alpha by August 1 and Beta by August 25. Six core payment flows at launch with BNPL and rewards as phase two.
+
+Next steps: Xccelera will deliver a detailed requirements document and architecture proposal by June 28. PhonePay to review and provide feedback by July 2. Revised proposal incorporating feedback by July 5. Kickoff sprint planning session July 7.
+
+RAVI SHANKAR: Perfect. Looking forward to the requirements document. Make sure the compliance requirements from Deepak are captured in full — that's often where things get lost.
+
+DEEPAK MEHTA: I'll send Arjun a separate document with our specific compliance checklist. Consider it a supplement to today's discussion.
+
+ARJUN KAPOOR: Excellent. Thank you all for your time.
+
+---
+
+POST-SESSION ADDENDUM — EMAIL FROM PRIYA NAIR (received June 23, 2026)
+
+Hi Arjun,
+
+A few things I forgot to mention in the session:
+
+1. Payee Management: Users should be able to save frequent payees — up to 50 saved payees per account. Each saved payee has a name, UPI ID or account number, and optionally a category like "Rent", "Utilities", "Family". The payee list must sync across devices so if a user reinstalls the app or switches phones, their saved payees are restored.
+
+2. UPI Autopay: We need UPI Autopay support — this allows merchants to set up recurring mandates for monthly subscriptions. The user approves the mandate once and subsequent deductions are automatic up to the mandated amount. The user can view all active mandates and cancel any of them from within the app. This was supposed to be phase two but our enterprise clients are demanding it.
+
+3. Split Bill: A social feature — user can split a bill amount among multiple friends. Each friend gets a collect request for their share. The split can be equal or custom percentages. The app shows the status of each person's payment.
+
+4. Dark mode: I know I said P1 but Ravi just messaged me saying he wants it at launch. So please capture dark mode as a launch requirement.
+
+5. Biometric login: On supported devices, users should be able to authenticate with fingerprint or Face ID instead of MPIN. The biometric credential must map to the MPIN on the device — it's just a convenient unlock, not a separate credential. The underlying authentication with our servers still uses the MPIN token derived authentication.
+
+6. Regarding the transaction search I mentioned — it should also include the ability to search by amount with operators — "greater than 5000", "between 1000 and 2000". This is especially useful for the download statements feature.
+
+7. Download statements: Users must be able to download a statement of transactions for any time period up to the last 12 months. Format: PDF and CSV. The statement must include the bank's transaction reference number for reconciliation. Statement generation must be asynchronous — user requests it, gets a notification when it's ready, downloads from notifications.
+
+8. The ops dashboard needs one more thing I forgot — a capability to temporarily increase a user's transaction limit for specific cases. For example, a user is buying property and needs to make a 50 lakh rupee transfer — way above our standard 1 lakh UPI daily limit. Ops can do a temporary limit increase with a validity period and an approval workflow — Customer Support raises it, Ops Manager approves.
+
+Best,
+Priya
+
+---
+
+POST-SESSION ADDENDUM — EMAIL FROM ANANYA IYER (received June 23, 2026)
+
+Arjun,
+
+Two technical things I didn't cover:
+
+1. CI/CD Pipeline: We're using GitHub Actions for CI and ArgoCD for CD onto EKS. Every PR must pass: unit tests, integration tests against a containerized test environment, SAST scan via SonarQube with no new High/Critical issues, and container image security scan via Trivy. The CD pipeline deploys to staging automatically on merge to main. Production deployment requires a manual approval gate by the engineering VP or a designated deputy.
+
+2. API Gateway: We're using AWS API Gateway in front of all services. WAF rules are configured for the most common attack patterns — SQLi, XSS, HTTP floods. All traffic passes through API Gateway — there is no direct access to service endpoints from outside the VPC. The API Gateway must be configured to strip internal headers before forwarding to services.
+
+3. Database migrations: Flyway for schema migrations. Zero-downtime migration strategy required — column additions and new tables only, no column renames or deletions in a single deployment. Two-step process: first deployment adds new column as nullable, subsequent deployment populates it and adds the NOT NULL constraint.
+
+Thanks,
+Ananya

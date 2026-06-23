@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useParams, useNavigate } from 'react-router-dom'
 import useProjectStore from '../store/projectStore'
@@ -105,9 +105,45 @@ function feasActionsFor(p) {
 
 /* ============ OVERVIEW TAB ============ */
 function TabOverview({ p, navigate }) {
-  const { userById } = useProjectStore()
+  const { userById, updateProject } = useProjectStore()
   const { showToast } = useAppStore()
   const [triggering, setTriggering] = useState(false)
+
+  // Auto-poll every 4s while any file is not yet done (queue or processing)
+  const isProcessing = (p.inputs ?? []).some(f => f.stat !== 'done' && f.stat !== 'err')
+  const pollRef = useRef(null)
+  useEffect(() => {
+    if (!isProcessing) { clearInterval(pollRef.current); return }
+    const STAGE_MAP = { intake: 0, processing: 1, drafted: 2, gap_review: 3, feasibility: 4, client_review: 5, approved: 6 }
+    async function poll() {
+      try {
+        const { data } = await projectsApi.get(p.id)
+        updateProject(p.id, proj => ({
+          ...proj,
+          stage: STAGE_MAP[data.stage] ?? proj.stage,
+          inputs: (data.files || []).map(f => ({
+            fileId: f.id, name: f.filename, kind: f.file_type, size: '—',
+            stat: f.status === 'complete' ? 'done' : f.status === 'failed' ? 'err' : f.status === 'processing' ? 'proc' : 'queue',
+            prog: f.status === 'complete' ? 100 : 0, meta: f.status,
+          })),
+        }))
+      } catch { /* silent — don't toast on background polls */ }
+    }
+    pollRef.current = setInterval(poll, 4000)
+    return () => clearInterval(pollRef.current)
+  }, [isProcessing, p.id])
+
+  // Derive pipeline stage display from real file statuses instead of mock flowState
+  const anyProc = (p.inputs ?? []).some(f => f.stat === 'proc')
+  const anyQueued = (p.inputs ?? []).some(f => f.stat === 'queue')
+  const anyDone = (p.inputs ?? []).some(f => f.stat === 'done')
+  const derivedFlowState = (p.stage ?? 0) >= 2 || anyDone
+    ? [1, 1, 1, 1, 1, 1, 1, 1]
+    : anyProc
+      ? [1, 2, 2, 2, 0, 0, 0, 0]  // ingestion done, pipeline running
+      : anyQueued
+        ? [2, 0, 0, 0, 0, 0, 0, 0]  // ingestion queued
+        : [0, 0, 0, 0, 0, 0, 0, 0]
 
   async function triggerPipeline() {
     setTriggering(true)
@@ -149,7 +185,7 @@ function TabOverview({ p, navigate }) {
       </div>
       <div className="flow">
         {FLOW.map(([ico, name, meta], i) => {
-          const st = p.flowState[i]; const k = st===1?'done':st===2?'run':'wait'; const lbl = st===1?'done':st===2?'running':'queued'
+          const st = derivedFlowState[i]; const k = st===1?'done':st===2?'run':'wait'; const lbl = st===1?'done':st===2?'running':'queued'
           return (
             <div key={i} className="flow-stage">
               <div className={`flow-ico ${k}`}>{ico}</div>
@@ -196,56 +232,69 @@ function TabOverview({ p, navigate }) {
 }
 
 /* ============ INPUTS TAB ============ */
+/* ---- file type SVG icons ---- */
+function FileTypeIcon({ kind }) {
+  if (kind === 'video') return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <rect x="2" y="5" width="15" height="14" rx="2"/><path d="M17 9l5-3v12l-5-3V9z"/>
+    </svg>
+  )
+  if (kind === 'audio') return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+    </svg>
+  )
+  /* document / text / default */
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/>
+    </svg>
+  )
+}
+
+const FR_ICON_STYLE = {
+  video:    { background: 'rgba(59,130,246,.14)',  color: '#60a5fa' },
+  audio:    { background: 'rgba(168,85,247,.14)',  color: '#c084fc' },
+  document: { background: 'rgba(34,197,94,.10)',   color: '#4ade80' },
+  text:     { background: 'rgba(251,191,36,.10)',  color: '#fbbf24' },
+}
+
+function fileMeta(f) {
+  const parts = []
+  if (f.size && f.size !== '—') parts.push(f.size)
+  if (f.stat === 'done') {
+    if (f.kind === 'video' || f.kind === 'audio') parts.push('transcribed', 'PII-redacted')
+    else parts.push('parsed')
+  } else if (f.stat === 'proc') {
+    parts.push('extracting entities…')
+  } else if (f.stat === 'queue') {
+    parts.push('queued for processing')
+  } else if (f.stat === 'err') {
+    parts.push('processing failed')
+  }
+  return parts.join(' · ')
+}
+
 function TabInputs({ p }) {
   const { openModal, showToast } = useAppStore()
   const { updateProject } = useProjectStore()
-  const [refreshing,    setRefreshing]    = useState(false)
-  const [reprocessing,  setReprocessing]  = useState(false)
-  const [deletingId,    setDeletingId]    = useState(null)
+  const [reprocessing,    setReprocessing]    = useState(false)
+  const [deletingId,      setDeletingId]      = useState(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
-  const fkIco = { video:'🎥', audio:'🎙', doc:'📄', email:'✉️', chat:'💬' }
+  const [dragOver,        setDragOver]        = useState(false)
 
-  const hasIncomplete = p.inputs.some(f => f.stat !== 'done')
-
-  async function reprocessAll() {
+  async function runAnalysis() {
     setReprocessing(true)
     try {
       const { data } = await queueApi.reprocess(p.id)
       const count = data.queued?.length ?? 0
-      if (count === 0) {
-        showToast('All files are already complete — nothing to re-process')
-      } else {
-        showToast(`Re-queued ${count} file${count !== 1 ? 's' : ''} for processing`)
-        await refreshStatus()
-      }
+      showToast(count > 0
+        ? `Pipeline queued for ${count} file${count !== 1 ? 's' : ''} — PRD will update shortly`
+        : 'All files already processed — nothing queued')
     } catch {
-      showToast('Could not re-process — backend may be unavailable', 'error')
+      showToast('Could not start pipeline — backend may be unavailable', 'error')
     } finally {
       setReprocessing(false)
-    }
-  }
-
-  async function refreshStatus() {
-    setRefreshing(true)
-    try {
-      const { data } = await projectsApi.get(p.id)
-      updateProject(p.id, proj => ({
-        ...proj,
-        inputs: (data.files || []).map(f => ({
-          fileId: f.id,
-          name: f.filename,
-          kind: f.file_type,
-          size: '—',
-          stat: f.status === 'complete' ? 'done' : f.status === 'processing' ? 'proc' : 'queue',
-          prog: f.status === 'complete' ? 100 : 0,
-          meta: f.status,
-        })),
-      }))
-      showToast('File statuses refreshed')
-    } catch {
-      showToast('Could not refresh — backend may be unavailable', 'error')
-    } finally {
-      setRefreshing(false)
     }
   }
 
@@ -263,82 +312,106 @@ function TabInputs({ p }) {
     }
   }
 
+  function onDragOver(e) { e.preventDefault(); setDragOver(true) }
+  function onDragLeave(e) { if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(false) }
+  function onDrop(e) { e.preventDefault(); setDragOver(false); openModal('upload', { projId: p.id }) }
+
   return (
     <>
-      <div className="dropzone" onClick={() => openModal('upload', { projId: p.id })}>
-        <div className="dz-ico">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      {/* ── Drop zone ── */}
+      <div
+        className={`dz2${dragOver ? ' dz2-over' : ''}`}
+        onClick={() => openModal('upload', { projId: p.id })}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+      >
+        <div className="dz2-ico">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <path d="M17 8l-5-5-5 5M12 3v12"/>
           </svg>
         </div>
-        <h4>Drop files or click to upload</h4>
-        <p>Each file is transcribed, chunked, source-tagged and merged into the PRD.</p>
+        <h4 className="dz2-title">Drop files or click to upload</h4>
+        <p className="dz2-sub">Each file is transcribed, chunked, source-tagged and merged into the PRD.</p>
         <div className="dz-types">
-          <span className="src">🎥 Video ≤1GB</span><span className="src">🎙 Audio ≤500MB</span>
-          <span className="src">📄 Docs ≤50MB</span><span className="src">💬 Chat ≤10MB</span>
-          <span className="src">✉️ Email</span><span className="src">⏺ Live record</span>
+          <span className="src">🎥 Video ≤1GB</span>
+          <span className="src">🎙 Audio ≤500MB</span>
+          <span className="src">📄 Docs ≤50MB</span>
+          <span className="src">📝 Paste text</span>
         </div>
       </div>
-      <div className="panel" style={{marginTop:'18px'}}>
+
+      {/* ── Source files panel ── */}
+      <div className="panel" style={{ marginTop: '16px' }}>
         <div className="panel-h">
           <h3>Source files</h3>
-          <span className="count" style={{background:'var(--accent-soft)',color:'var(--accent)'}}>{p.inputs.length}</span>
+          <span className="count" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>
+            {p.inputs.length}
+          </span>
           <span className="spacer" />
-          {hasIncomplete && (
-            <button className="btn btn-ghost btn-sm" onClick={reprocessAll} disabled={reprocessing || refreshing} style={{marginRight:'6px'}}>
-              {reprocessing ? 'Re-queuing…' : '⟳ Re-process failed'}
-            </button>
-          )}
-          <button className="btn btn-ghost btn-sm" onClick={refreshStatus} disabled={refreshing}>
-            {refreshing ? 'Refreshing…' : '↻ Refresh status'}
+          <button className="btn btn-primary btn-sm" onClick={runAnalysis} disabled={reprocessing}>
+            {reprocessing ? 'Queuing…' : 'Run AI analysis'}
           </button>
         </div>
-        {p.inputs.length === 0
-          ? <div className="empty">No files yet — upload source files above to start the pipeline.</div>
-          : p.inputs.map((f) => (
-            <div key={f.fileId ?? f.name} className="filerow">
-              <div className="fr-ico">{fkIco[f.kind] || '📄'}</div>
-              <div className="fr-body">
-                <b>{f.name}</b>
-                <div className="fr-meta"><span>{f.size}</span> · <span>{f.meta}</span></div>
-                {f.stat === 'proc' && <div className="fr-prog"><i style={{width:`${f.prog}%`}} /></div>}
-              </div>
-              <div className={`fr-stat ${f.stat==='done'?'done':f.stat==='proc'?'proc':f.stat==='err'?'err':'queue'}`}>
-                {f.stat==='done'?'Indexed':f.stat==='proc'?'Processing':f.stat==='err'?'Error':'Queued'}
-              </div>
-              {f.fileId && (
-                confirmDeleteId === f.fileId ? (
-                  <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                    <button
-                      onClick={() => deleteFile(f.fileId)}
-                      disabled={deletingId === f.fileId}
-                      style={{ background: 'var(--red)', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', padding: '3px 8px', fontSize: '12px', fontWeight: 600 }}
-                    >
-                      {deletingId === f.fileId ? '…' : 'Delete'}
-                    </button>
-                    <button
-                      onClick={() => setConfirmDeleteId(null)}
-                      style={{ background: 'none', border: '1px solid var(--line)', borderRadius: '4px', cursor: 'pointer', padding: '3px 8px', fontSize: '12px', color: 'var(--ink-soft)' }}
-                    >
-                      Cancel
-                    </button>
+
+        {p.inputs.length === 0 ? (
+          <div className="empty">No files yet — upload source files above to start the pipeline.</div>
+        ) : (
+          <div className="fr2-list">
+            {p.inputs.map(f => {
+              const iconStyle = FR_ICON_STYLE[f.kind] || FR_ICON_STYLE.document
+              const isDone = f.stat === 'done'
+              const isProc = f.stat === 'proc'
+              const isErr  = f.stat === 'err'
+              const statCls = isDone ? 'done' : isProc ? 'proc' : isErr ? 'err' : 'queue'
+              const statLabel = isDone ? 'INDEXED' : isProc ? 'PROCESSING' : isErr ? 'ERROR' : 'QUEUED'
+
+              return (
+                <div key={f.fileId ?? f.name} className="fr2">
+                  <div className="fr2-row">
+                    <div className="fr2-ico" style={iconStyle}>
+                      <FileTypeIcon kind={f.kind} />
+                    </div>
+                    <div className="fr2-body">
+                      <span className="fr2-name">{f.name}</span>
+                      <span className="fr2-meta">{fileMeta(f)}</span>
+                    </div>
+                    <span className={`fr2-badge ${statCls}`}>{statLabel}</span>
+
+                    {f.fileId && (
+                      confirmDeleteId === f.fileId ? (
+                        <div className="fr2-confirm">
+                          <button className="fr2-yes" onClick={() => deleteFile(f.fileId)} disabled={deletingId === f.fileId}>
+                            {deletingId === f.fileId ? '…' : 'Delete'}
+                          </button>
+                          <button className="fr2-no" onClick={() => setConfirmDeleteId(null)}>Cancel</button>
+                        </div>
+                      ) : (
+                        <button className="fr2-del" onClick={e => { e.stopPropagation(); setConfirmDeleteId(f.fileId) }} title="Remove file">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <path d="M18 6L6 18M6 6l12 12"/>
+                          </svg>
+                        </button>
+                      )
+                    )}
                   </div>
-                ) : (
-                  <button
-                    onClick={() => setConfirmDeleteId(f.fileId)}
-                    title="Delete file"
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-soft)', padding: '4px 6px', fontSize: '14px', lineHeight: 1 }}
-                  >
-                    ✕
-                  </button>
-                )
-              )}
-            </div>
-          ))
-        }
+
+                  {isProc && (
+                    <div className="fr2-prog">
+                      <div className="fr2-prog-fill" style={{ width: `${f.prog || 15}%` }} />
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
-      <p style={{marginTop:'14px',fontSize:'12.5px',color:'var(--ink-soft)'}}>Every requirement in the PRD links back to a timestamped position in one of these files — that's how source citations are generated.</p>
+
+      <p className="inputs-foot">
+        Every requirement in the PRD links back to a timestamped position in one of these files — that's how source citations are generated.
+      </p>
     </>
   )
 }

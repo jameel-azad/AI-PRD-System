@@ -24,14 +24,17 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 480
 
+    # Gemini — kept for reference but no longer used by default
     GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-1.5-pro"
-    GEMINI_EMBEDDING_MODEL: str = "models/embedding-001"
+    GEMINI_MODEL: str = "gemini-1.5-flash"
+    GEMINI_EMBEDDING_MODEL: str = "models/text-embedding-004"
 
     OPENAI_API_KEY: str = ""
     OPENAI_WHISPER_MODEL: str = "whisper-1"
+    OPENAI_CHAT_MODEL: str = "gpt-4o-mini"
+    OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
 
-    LANGGRAPH_LLM: str = "gemini"       # "gemini" | "claude"
+    LANGGRAPH_LLM: str = "openai"       # "openai" | "claude" | "gemini"
     ANTHROPIC_API_KEY: str = ""
     ANTHROPIC_MODEL: str = "claude-sonnet-4-6"
 
@@ -62,10 +65,11 @@ class Settings(BaseSettings):
 
     def validate_required_keys(self) -> None:
         """Called at startup — fails fast with a clear error if keys are missing."""
-        if not self.GEMINI_API_KEY:
-            raise RuntimeError("GEMINI_API_KEY is not set in .env")
         if not self.OPENAI_API_KEY:
-            raise RuntimeError("OPENAI_API_KEY is not set in .env — required for Whisper transcription")
+            raise RuntimeError("OPENAI_API_KEY is not set in .env — required for Whisper, embeddings, and LLM calls")
+        if self.LANGGRAPH_LLM.lower() == "claude" and not self.ANTHROPIC_API_KEY:
+            raise RuntimeError("ANTHROPIC_API_KEY is not set in .env — required when LANGGRAPH_LLM=claude")
+        # Gemini check removed — no longer the default provider
 
 
 settings = Settings()

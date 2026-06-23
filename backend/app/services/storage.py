@@ -122,6 +122,21 @@ class StorageService:
 
         await self._with_retry(_dl, context=f"download {self.bucket}/{key}")
 
+    async def download_bytes(self, key: str) -> bytes:
+        """Download an object and return its full content as bytes (for small docs)."""
+
+        def _dl() -> bytes:
+            response = None
+            try:
+                response = self.client.get_object(self.bucket, key)
+                return response.read()
+            finally:
+                if response is not None:
+                    response.close()
+                    response.release_conn()
+
+        return await self._with_retry(_dl, context=f"download_bytes {self.bucket}/{key}")
+
     async def delete(self, key: str) -> None:
         await self._with_retry(
             self.client.remove_object, self.bucket, key,

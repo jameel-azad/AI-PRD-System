@@ -16,16 +16,18 @@ minio==7.2.7
 celery==5.4.0
 redis==5.0.4
 # ── AI / LLM ───────────────────────────────────────────────────
-google-generativeai==0.7.0   # Gemini API (embeddings; kept for embed_text)
-openai==1.30.0               # Whisper API (transcription)
+# google-generativeai==0.7.0   # Gemini API — commented out, using OpenAI
+openai>=1.50.0               # Whisper API (transcription) + embeddings
 # ── LangGraph / LangChain ──────────────────────────────────────
 langgraph>=0.2.0
 langchain-core>=0.3.0
-langchain-google-genai>=2.0.0
+langchain-openai>=0.2.0
+# langchain-google-genai>=2.0.0   # Gemini — commented out, using OpenAI
 langchain-anthropic>=0.3.0
 # ── Export ─────────────────────────────────────────────────────
 fpdf2>=2.7.0              # PDF generation (pure Python, no system deps)
-python-docx>=1.1.0        # DOCX generation
+python-docx>=1.1.0        # DOCX generation and ingestion
+pymupdf>=1.24.0           # PDF text extraction for ingestion
 # ── HTTP client ────────────────────────────────────────────────
 httpx==0.27.0
 # ── Rate limiting ──────────────────────────────────────────────

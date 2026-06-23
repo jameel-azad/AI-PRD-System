@@ -37,6 +37,10 @@ async def _latest_completeness(project_id: int, db: AsyncSession) -> int:
 class ProjectCreate(BaseModel):
     name: str
     client_org: str
+    country: Optional[str] = None
+    industry: Optional[str] = None
+    deployment_type: Optional[str] = None
+    approver_email: Optional[str] = None
 
 
 class StageUpdate(BaseModel):
@@ -107,6 +111,9 @@ async def list_projects(
         owner = owner_map.get(p.owner_id)
         result.append({
             "id": p.id, "name": p.name, "client_org": p.client_org,
+            "country": p.country, "industry": p.industry,
+            "deployment_type": p.deployment_type,
+            "approver_email": p.approver_email,
             "stage": p.stage, "created_at": p.created_at,
             "owner_id": p.owner_id,
             "owner_name": owner.name if owner else None,
@@ -123,11 +130,22 @@ async def create_project(
     current_user: User = Depends(require_role(UserRole.admin, UserRole.ba_pm)),
     db: AsyncSession = Depends(get_db),
 ):
-    project = Project(name=body.name, client_org=body.client_org, owner_id=current_user.id)
+    project = Project(
+        name=body.name, client_org=body.client_org,
+        country=body.country, industry=body.industry,
+        deployment_type=body.deployment_type,
+        approver_email=body.approver_email,
+        owner_id=current_user.id,
+    )
     db.add(project)
     await db.commit()
     await db.refresh(project)
-    return {"id": project.id, "name": project.name, "client_org": project.client_org, "stage": project.stage}
+    return {
+        "id": project.id, "name": project.name, "client_org": project.client_org,
+        "country": project.country, "industry": project.industry,
+        "deployment_type": project.deployment_type,
+        "approver_email": project.approver_email, "stage": project.stage,
+    }
 
 
 @router.get("/{project_id}")
@@ -150,6 +168,10 @@ async def get_project(
         "id": project.id,
         "name": project.name,
         "client_org": project.client_org,
+        "country": project.country,
+        "industry": project.industry,
+        "deployment_type": project.deployment_type,
+        "approver_email": project.approver_email,
         "stage": project.stage,
         "owner_id": project.owner_id,
         "created_at": project.created_at,
@@ -347,9 +369,14 @@ async def get_project_activity(
         select(PRDVersion).where(PRDVersion.project_id == project_id)
     )).scalars().all()
     for v in prd_versions:
+        txt = (
+            f"PRD version {v.version} regenerated from gap answers and resolved comments"
+            if v.source == "regeneration"
+            else f"PRD version {v.version} generated"
+        )
         events.append({
             "type": "prd_generated",
-            "txt": f"PRD version {v.version} generated",
+            "txt": txt,
             "time": v.created_at.isoformat(),
             "ico": "📄",
             "c": "purple-600",

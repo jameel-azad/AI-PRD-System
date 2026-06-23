@@ -30,7 +30,7 @@ PRD_PROMPT = """You are writing the "{section}" section of a Product Requirement
 
 Requirements for this section (with source citations):
 {requirements}
-
+{context_block}
 Rules:
 1. Every requirement must include its source citation in the format: [Source: filename -> MM:SS]
    for audio/video sources, or [Source: filename -> Page N] for documents. If a requirement has
@@ -138,6 +138,27 @@ def _validate_citations(content: str, requirements: list[dict]) -> bool:
     return True
 
 
+def _dedup_requirements(requirements: list[dict]) -> list[dict]:
+    """Exact-text safety net: remove duplicate content strings before LLM generation.
+
+    This is Layer 3 — it catches anything that slipped past the DB-level checks
+    in chunk_and_extract (e.g. rows already in the DB from a previous upload that
+    were not caught by the cosine threshold). Operates on the in-memory list only;
+    does not touch the DB.
+    """
+    seen: set[str] = set()
+    result: list[dict] = []
+    for r in requirements:
+        key = r["content"].strip().lower()
+        if key not in seen:
+            seen.add(key)
+            result.append(r)
+    dropped = len(requirements) - len(result)
+    if dropped:
+        logger.debug("_dedup_requirements: dropped %d duplicate(s) before generation", dropped)
+    return result
+
+
 def _compute_completeness(section: str, requirements: list[dict]) -> float:
     """
     Deterministic completeness score, independent of LLM self-assessment.
@@ -153,12 +174,16 @@ def _compute_completeness(section: str, requirements: list[dict]) -> float:
     return round(min(avg_confidence * 0.7 + volume_factor * 0.3, 1.0), 2)
 
 
-async def generate_section(section: str, requirements: list[dict]) -> dict:
+async def generate_section(section: str, requirements: list[dict], context_block: str = "") -> dict:
     if not requirements:
         return {"content": "", "completeness": 0.0, "requirement_count": 0}
 
     req_text = "\n".join(_format_requirement_line(r) for r in requirements)
-    prompt = PRD_PROMPT.format(section=section.replace("_", " ").title(), requirements=req_text)
+    prompt = PRD_PROMPT.format(
+        section=section.replace("_", " ").title(),
+        requirements=req_text,
+        context_block=context_block,
+    )
 
     result = await _call_llm_json(prompt, context=f"generate_section[{section}]")
 
@@ -181,14 +206,26 @@ async def generate_section(section: str, requirements: list[dict]) -> dict:
     }
 
 
-async def generate_prd(project_id: int, requirements: list[dict]) -> dict:
+async def generate_prd(
+    project_id: int,
+    requirements: list[dict],
+    section_context: dict[str, str] | None = None,
+) -> dict:
     """
     Generate all LLM-driven sections concurrently. Mechanical sections
     (open_questions, source_index) are intentionally excluded here - the
     caller should populate those from analyse_gaps() output and the
     project's source_files records, respectively.
+
+    section_context maps section keys to pre-built context_block strings
+    (gap answers + resolved comments). Sections absent from the dict get
+    an empty context_block, rendering the prompt byte-identical to a
+    non-regeneration call.
     """
+    requirements = _dedup_requirements(requirements)
     logger.info("Generating PRD for project_id=%s with %d requirements", project_id, len(requirements))
+
+    ctx = section_context or {}
 
     sections_with_reqs = {
         section: [r for r in requirements if r.get("section") == section]
@@ -196,7 +233,8 @@ async def generate_prd(project_id: int, requirements: list[dict]) -> dict:
     }
 
     results = await asyncio.gather(
-        *(generate_section(section, reqs) for section, reqs in sections_with_reqs.items())
+        *(generate_section(section, reqs, ctx.get(section, ""))
+          for section, reqs in sections_with_reqs.items())
     )
 
     prd = dict(zip(sections_with_reqs.keys(), results))

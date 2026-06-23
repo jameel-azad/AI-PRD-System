@@ -39,7 +39,7 @@ export function apiProjectToStore(p) {
       name: f.filename,
       kind: f.file_type,
       size: '—',
-      stat: f.status === 'complete' ? 'done' : f.status === 'processing' ? 'proc' : 'queue',
+      stat: f.status === 'complete' ? 'done' : f.status === 'failed' ? 'err' : f.status === 'processing' ? 'proc' : 'queue',
       prog: f.status === 'complete' ? 100 : 0,
       meta: f.status,
     })),

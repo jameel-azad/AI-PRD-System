@@ -117,11 +117,11 @@ export default function FileUpload({ projectId, files = [] }) {
         style={uploading ? { cursor: 'default', opacity: 0.8 } : {}}
       >
         <input ref={fileRef} type="file" className="hidden" onChange={handleFiles} disabled={uploading}
-          accept=".mp3,.wav,.m4a,.ogg,.mp4,.mov,.avi,.mkv,.webm,.pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.webp" />
+          accept=".mp3,.wav,.m4a,.ogg,.mp4,.mov,.avi,.mkv,.webm,.pdf,.docx,.txt,.md" />
         <p className="text-gray-600 font-medium">
           {uploading ? (uploadPct < 100 ? `Uploading — ${uploadPct}%` : 'Processing…') : 'Click to upload a file'}
         </p>
-        <p className="text-gray-400 text-sm mt-1">Audio, video, document, or image</p>
+        <p className="text-gray-400 text-sm mt-1">Audio, video, or document (PDF, DOCX, TXT)</p>
         {uploading && (
           <div className="mt-3 mx-auto" style={{ maxWidth: '240px' }}>
             <div style={{ height: '4px', background: '#E5E7EB', borderRadius: '2px', overflow: 'hidden' }}>

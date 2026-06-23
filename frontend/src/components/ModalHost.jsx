@@ -60,7 +60,13 @@ function NewProjectModal({ closeModal, showToast, addProject }) {
     const langs = l2 ? `${l1.slice(0,2).toUpperCase()} + ${l2.slice(0,2).toUpperCase()}` : l1.slice(0,2).toUpperCase()
     setCreating(true)
     try {
-      const { data } = await projectsApi.create({ name, client_org: client })
+      const { data } = await projectsApi.create({
+        name, client_org: client,
+        country: countryRef.current?.value || null,
+        industry: industryRef.current?.value || null,
+        deployment_type: deploy || null,
+        approver_email: approverRef.current?.value || null,
+      })
       addProject({
         ...data,
         client, client_org: client,
@@ -224,35 +230,44 @@ function UploadModal({ closeModal, showToast, projects, param }) {
 
     if (kind === 'text') {
       if (!noteText.trim()) { showToast('Type some notes first'); return }
-      const nm = 'pasted_notes_' + (Date.now() % 10000) + '.txt'
-      const sz = (noteText.length / 1024).toFixed(1) + ' KB'
-      updateProject(pid, proj => {
-        const newFlowState = proj.flowState.every(s => s === 0) ? [2, ...proj.flowState.slice(1)] : proj.flowState
-        return { ...proj, inputs: [...(proj.inputs || []), { name: nm, kind: 'text', size: sz, stat: 'proc', prog: 0, meta: 'queued for extraction' }], stage: Math.max(proj.stage, 1), flowState: newFlowState }
-      })
-      addProjectActivity(pid, { ico: '📥', c: 'violet-soft', cl: 'var(--violet)', txt: `<b>You</b> added ${nm}`, time: 'Just now' })
-      closeModal()
-      showToast('Input added — processing started')
+      // Upload pasted text as a real .txt file so the pipeline can process it
+      const nm = `pasted_notes_${Date.now() % 100000}.txt`
+      const blob = new Blob([noteText], { type: 'text/plain' })
+      const textFile = new File([blob], nm, { type: 'text/plain' })
+      setUploading(true)
+      setUploadPct(0)
+      try {
+        const { data: uploadRes } = await filesApi.upload(pid, textFile, pct => setUploadPct(pct))
+        updateProject(pid, proj => ({
+          ...proj,
+          inputs: [...(proj.inputs || []), {
+            fileId: uploadRes.id, name: uploadRes.filename || nm, kind: 'text',
+            size: (noteText.length / 1024).toFixed(1) + ' KB', stat: 'queue', prog: 0, meta: uploadRes.status || 'queued',
+          }],
+          stage: Math.max(proj.stage, 1),
+        }))
+        addProjectActivity(pid, { ico: '📥', c: 'violet-soft', cl: 'var(--violet)', txt: `<b>You</b> added ${nm}`, time: 'Just now' })
+        closeModal()
+        showToast('Notes uploaded — pipeline started')
+      } catch (err) {
+        showToast(err.response?.data?.detail || 'Upload failed', 'error')
+        setUploading(false)
+        setUploadPct(0)
+      }
       return
     }
 
     if (kind === 'record') {
-      const nm = 'live_recording_' + (Date.now() % 10000) + '.webm'
-      updateProject(pid, proj => {
-        const newFlowState = proj.flowState.every(s => s === 0) ? [2, ...proj.flowState.slice(1)] : proj.flowState
-        return { ...proj, inputs: [...(proj.inputs || []), { name: nm, kind: 'video', size: '—', stat: 'proc', prog: 0, meta: 'recording queued' }], stage: Math.max(proj.stage, 1), flowState: newFlowState }
-      })
-      closeModal()
-      showToast('Recording queued')
+      showToast('Live recording is not yet available — use the file upload option instead', 'error')
       return
     }
 
     const f = fileRef.current?.files?.[0]
     if (!f) { showToast('Choose a file to upload'); return }
     const ext = f.name.split('.').pop()?.toLowerCase() || ''
-    const ALLOWED_EXTS = new Set(['mp3','wav','m4a','ogg','mp4','mov','avi','mkv','webm','pdf','docx','txt','md','png','jpg','jpeg','webp'])
-    if (!ALLOWED_EXTS.has(ext)) { showToast(`Unsupported file type: .${ext}. Allowed: audio, video, PDF, DOCX, TXT, MD, image`, 'error'); return }
-    const SIZE_LIMITS_MB = { mp3:500, wav:500, m4a:500, ogg:500, mp4:1000, mov:1000, avi:1000, mkv:1000, webm:1000, pdf:50, docx:50, txt:50, md:50, png:20, jpg:20, jpeg:20, webp:20 }
+    const ALLOWED_EXTS = new Set(['mp3','wav','m4a','ogg','mp4','mov','avi','mkv','webm','pdf','docx','txt','md'])
+    if (!ALLOWED_EXTS.has(ext)) { showToast(`Unsupported file type: .${ext}. Supported: audio, video, PDF, DOCX, TXT, MD`, 'error'); return }
+    const SIZE_LIMITS_MB = { mp3:500, wav:500, m4a:500, ogg:500, mp4:1000, mov:1000, avi:1000, mkv:1000, webm:1000, pdf:50, docx:50, txt:50, md:50 }
     const limitMB = SIZE_LIMITS_MB[ext] ?? 500
     if (f.size > limitMB * 1_000_000) { showToast(`File too large — max ${limitMB} MB for .${ext} files`, 'error'); return }
     const nm = f.name
@@ -299,10 +314,7 @@ function UploadModal({ closeModal, showToast, projects, param }) {
             <option value="video">🎥 Video — MP4/MOV/WebM · ≤1 GB</option>
             <option value="audio">🎙 Audio — MP3/WAV/M4A · ≤500 MB</option>
             <option value="doc">📄 Document — PDF/Word/TXT · ≤50 MB</option>
-            <option value="chat">💬 Chat export — Slack/WhatsApp/Teams · ≤10 MB</option>
-            <option value="email">📧 Email — forward-to-ingest / OAuth</option>
             <option value="text">📝 Direct text — paste notes</option>
-            <option value="record">🔴 Live recording — record this call</option>
           </select>
         </div>
         {kind === 'text' ? (
@@ -312,7 +324,7 @@ function UploadModal({ closeModal, showToast, projects, param }) {
             <div className="dz-ico">⬆</div>
             <div>{fileName ? fileName : <span>Drop a file here or <u>browse</u></span>}</div>
             <div style={{fontSize:'12px',color:'var(--ink-soft)',marginTop:'6px'}}>Files are encrypted at rest (AES-256). Raw recordings auto-deleted after processing.</div>
-            <input type="file" ref={fileRef} style={{display:'none'}} disabled={uploading} accept=".mp3,.wav,.m4a,.ogg,.mp4,.mov,.avi,.mkv,.webm,.pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.webp" onChange={e => setFileName(e.target.files?.[0]?.name || '')} />
+            <input type="file" ref={fileRef} style={{display:'none'}} disabled={uploading} accept=".mp3,.wav,.m4a,.ogg,.mp4,.mov,.avi,.mkv,.webm,.pdf,.docx,.txt,.md" onChange={e => setFileName(e.target.files?.[0]?.name || '')} />
           </div>
         )}
         {uploading && (

@@ -427,6 +427,46 @@ fieldset legend{font-size:12.5px;font-weight:600;margin-bottom:8px}
 .banner .bspace{margin-left:auto}
 .lang-note{font-size:12px;color:var(--ink-soft);background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:-4px 0 16px}
 
+/* ============ PRD SECTION TOOLBAR ============ */
+.prd-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.prd-lang-group{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.prd-lang-btn{padding:5px 12px;font-size:12.5px;font-weight:600;background:none;border:none;border-right:1px solid var(--line);color:var(--ink-soft);cursor:pointer;transition:background .12s,color .12s;white-space:nowrap}
+.prd-lang-btn:last-child{border-right:none}
+.prd-lang-btn:hover{background:var(--surface);color:var(--ink)}
+.prd-lang-btn.active{background:var(--accent);color:#fff}
+
+/* ── Inputs tab v2 ── */
+.dz2{border:2px dashed var(--line);border-radius:var(--radius);background:var(--surface);padding:28px 24px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s}
+.dz2:hover,.dz2-over{border-color:var(--accent);background:var(--accent-soft)}
+.dz2-ico{width:48px;height:48px;border-radius:12px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;margin:0 auto 12px}
+.dz2-title{font-size:15px;font-weight:700;margin:0}
+.dz2-sub{font-size:12.5px;color:var(--ink-soft);margin:5px 0 0}
+
+.fr2-list{margin-top:18px;display:flex;flex-direction:column;gap:2px}
+.fr2{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;transition:border-color .15s}
+.fr2:hover{border-color:rgba(255,255,255,.18)}
+.fr2-row{display:flex;align-items:center;gap:13px;padding:13px 16px}
+.fr2-ico{width:40px;height:40px;border-radius:9px;flex:none;display:flex;align-items:center;justify-content:center;color:#fff}
+.fr2-body{flex:1;min-width:0}
+.fr2-name{font-size:13.5px;font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fr2-meta{font-size:11.5px;color:var(--ink-soft);display:block;margin-top:3px}
+.fr2-badge{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:3px 9px;border-radius:99px;flex:none}
+.fr2-badge.done{background:rgba(34,197,94,.15);color:var(--green)}
+.fr2-badge.proc{background:rgba(59,130,246,.15);color:var(--blue)}
+.fr2-badge.queue{background:rgba(255,255,255,.07);color:var(--ink-soft)}
+.fr2-badge.err{background:rgba(239,68,68,.15);color:var(--red)}
+.fr2-del{flex:none;width:26px;height:26px;border-radius:6px;background:none;border:1px solid transparent;color:var(--ink-soft);cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .12s,background .12s,color .12s}
+.fr2:hover .fr2-del{opacity:1}
+.fr2-del:hover{background:var(--red-soft);border-color:rgba(239,68,68,.32);color:var(--red)}
+.fr2-confirm{display:flex;gap:6px;flex:none}
+.fr2-yes{font-size:11px;font-weight:700;padding:4px 10px;border-radius:6px;background:var(--red-soft);border:1px solid rgba(239,68,68,.32);color:var(--red);cursor:pointer}
+.fr2-no{font-size:11px;font-weight:700;padding:4px 10px;border-radius:6px;background:var(--paper);border:1px solid var(--line);color:var(--ink-soft);cursor:pointer}
+.fr2-prog{height:4px;background:rgba(255,255,255,.06);overflow:hidden}
+.fr2-prog-fill{height:100%;background:var(--blue);border-radius:0 99px 99px 0;transition:width .4s ease}
+
+.inputs-run{display:flex;justify-content:center;margin-top:16px}
+.inputs-foot{font-size:12px;color:var(--ink-soft);text-align:center;margin-top:12px;line-height:1.55}
+
 @media(max-width:1080px){.layout{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}.feas-grid{grid-template-columns:1fr}.set-grid{grid-template-columns:1fr}}
 @media(max-width:880px){
   .app-shell{grid-template-columns:1fr}

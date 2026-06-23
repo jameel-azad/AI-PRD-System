@@ -1,3 +1,6 @@
+import shutil
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,15 +17,19 @@ ALLOWED_TYPES = {
     "audio":    [".mp3", ".wav", ".m4a", ".ogg"],
     "video":    [".mp4", ".mov", ".avi", ".mkv", ".webm"],
     "document": [".pdf", ".docx", ".txt", ".md"],
-    "image":    [".png", ".jpg", ".jpeg", ".webp"],
+    # Images are intentionally excluded: text extraction requires OCR which
+    # is not yet supported. Accepting images would silently produce 0 requirements.
 }
 MAX_SIZES = {
-    "audio":    500_000_000,
-    "video":  1_000_000_000,
-    "document":  50_000_000,
-    "image":     20_000_000,
+    "audio":    500_000_000,   # 500 MB
+    "video":  1_000_000_000,   # 1 GB
+    "document":  50_000_000,   # 50 MB
 }
 _EXT_MAP = {ext: t for t, exts in ALLOWED_TYPES.items() for ext in exts}
+
+
+def _ffmpeg_available() -> bool:
+    return shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
 
 
 @router.post("/{project_id}/upload")
@@ -41,13 +48,30 @@ async def upload_file(
     ext = "." + file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
     file_type = _EXT_MAP.get(ext)
     if not file_type:
-        raise HTTPException(400, f"Unsupported file type: {ext}")
+        raise HTTPException(
+            400,
+            f"Unsupported file type: {ext!r}. "
+            "Supported: audio (.mp3 .wav .m4a .ogg), "
+            "video (.mp4 .mov .avi .mkv .webm), "
+            "document (.pdf .docx .txt .md)"
+        )
+
+    # Fail fast before upload if ffmpeg is missing for audio/video
+    if file_type in ("audio", "video") and not _ffmpeg_available():
+        raise HTTPException(
+            503,
+            "Audio/video processing requires ffmpeg and ffprobe, which are not installed on this server. "
+            "Install them (e.g. `choco install ffmpeg` on Windows or `apt install ffmpeg` on Linux) "
+            "and restart the backend."
+        )
 
     content = await file.read()
     if len(content) > MAX_SIZES[file_type]:
-        raise HTTPException(413, "File exceeds size limit")
+        raise HTTPException(413, f"File too large — max {MAX_SIZES[file_type] // 1_000_000} MB for {ext} files")
 
-    storage_key = f"projects/{project_id}/{file.filename}"
+    # Use a UUID prefix so two uploads of the same filename never collide in MinIO
+    uid = uuid.uuid4().hex[:12]
+    storage_key = f"projects/{project_id}/{uid}_{file.filename}"
     await storage_service.upload_bytes(storage_key, content, file.content_type or "application/octet-stream")
 
     source_file = SourceFile(

@@ -1,6 +1,7 @@
+import asyncio
 import logging
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 from langgraph.graph import StateGraph, START, END
@@ -63,17 +64,80 @@ async def load_source_file(state: PipelineState) -> dict:
         }
 
 
+async def _read_document(storage_key: str, filename: str) -> str:
+    """Download a document from MinIO and extract its plain text.
+
+    Supported: .txt, .md  (direct UTF-8 read)
+               .docx      (python-docx paragraph extraction)
+               .pdf       (PyMuPDF if installed, otherwise warns and returns "")
+    """
+    from app.services.storage import storage_service
+
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+
+    try:
+        raw = await storage_service.download_bytes(storage_key)
+    except Exception as exc:
+        logger.error("_read_document: failed to download %s: %s", storage_key, exc)
+        return ""
+
+    if ext in ("txt", "md"):
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return raw.decode("latin-1", errors="replace")
+
+    if ext == "docx":
+        try:
+            import io
+            from docx import Document
+            doc = Document(io.BytesIO(raw))
+            return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+        except Exception as exc:
+            logger.error("_read_document: DOCX extraction failed for %s: %s", filename, exc)
+            return ""
+
+    if ext == "pdf":
+        try:
+            import io
+            import fitz  # PyMuPDF
+            doc = fitz.open(stream=raw, filetype="pdf")
+            return "\n".join(page.get_text() for page in doc)
+        except ImportError:
+            logger.warning(
+                "_read_document: PDF text extraction requires pymupdf "
+                "(pip install pymupdf). Skipping %s", filename
+            )
+        except Exception as exc:
+            logger.error("_read_document: PDF extraction failed for %s: %s", filename, exc)
+        return ""
+
+    logger.warning("_read_document: no text extractor for .%s (%s)", ext, filename)
+    return ""
+
+
 async def transcribe_node(state: PipelineState) -> dict:
-    """Transcribe audio/video via Whisper, or pass through existing text."""
+    """Transcribe audio/video via Whisper; download and read text for documents."""
     if state["file_type"] in ("audio", "video"):
         result = await transcribe(state["storage_key"])
         transcript = redact_pii(result["full_text"])
         segments = result["segments"]
     else:
-        transcript = state.get("existing_transcript") or ""
         segments = []
+        # Use cached transcript if this file was already processed (re-run case).
+        transcript = state.get("existing_transcript") or ""
+        if not transcript:
+            # First run: download from MinIO and extract text.
+            transcript = await _read_document(state["storage_key"], state["filename"])
+            transcript = redact_pii(transcript) if transcript else ""
+            if not transcript:
+                logger.warning(
+                    "transcribe_node: empty transcript for %s (file_type=%s) — "
+                    "check that the file was uploaded with content",
+                    state["filename"], state["file_type"],
+                )
 
-    # Persist transcript back to the SourceFile row.
+    # Persist transcript back to the SourceFile row so re-runs skip the download.
     async with _Session() as session:
         sf = await session.get(SourceFile, state["source_file_id"])
         if sf is not None:
@@ -84,44 +148,121 @@ async def transcribe_node(state: PipelineState) -> dict:
 
 
 async def chunk_and_extract(state: PipelineState) -> dict:
-    """Chunk transcript → extract requirements + embed → save Requirement rows."""
+    """Chunk transcript → extract requirements + embed → save Requirement rows.
+
+    Parallelised in three phases:
+      Phase 1 — all chunks extracted concurrently (one LLM call per chunk).
+      Phase 2 — all unique items embedded concurrently (one API call per item).
+      Phase 3 — dedup + DB save, sequential to avoid race conditions.
+    """
     transcript = state.get("transcript", "")
     filename = state["filename"]
     project_id = state["project_id"]
-
-    # _segments is an internal key set by transcribe_node; not in TypedDict but
-    # LangGraph passes all state keys, so we read it directly.
     segments = state.get("_segments", [])
 
     chunks = chunk_text(transcript)
+    if not chunks:
+        logger.warning("chunk_and_extract: empty transcript for %s", filename)
+        return {"requirements": []}
+
+    # ── Phase 1: extract all chunks concurrently ──────────────────────────────
+    async def _extract_chunk(i: int, chunk: str):
+        char_pos = i * (1500 - 200)
+        timestamp = _find_timestamp(segments, transcript, char_pos)
+        source_ref = f"{filename} → {_fmt_time(timestamp)}"
+        new_ref = {"file": filename, "timestamp": _fmt_time(timestamp)}
+        items = await extract_requirements(chunk, source_ref)
+        return [(item, new_ref) for item in items]
+
+    chunk_results = await asyncio.gather(*(_extract_chunk(i, c) for i, c in enumerate(chunks)))
+    all_items = [pair for result in chunk_results for pair in result]
+
+    logger.info(
+        "chunk_and_extract: %d chunks → %d raw items extracted from %s",
+        len(chunks), len(all_items), filename,
+    )
+
+    if not all_items:
+        return {"requirements": []}
+
+    # Quick in-memory exact dedup before hitting the embedding API
+    seen_contents: set[str] = set()
+    unique_items = []
+    for item, new_ref in all_items:
+        key = item["content"].strip().lower()
+        if key not in seen_contents:
+            seen_contents.add(key)
+            unique_items.append((item, new_ref))
+
+    # ── Phase 2: embed all unique items concurrently ──────────────────────────
+    async def _embed(item, new_ref):
+        embedding = await embed_text(item["content"])
+        return (item, new_ref, embedding)
+
+    embedded = await asyncio.gather(*(_embed(item, ref) for item, ref in unique_items))
+
+    # ── Phase 3: dedup against DB and save (sequential) ───────────────────────
     all_requirements = []
-
     async with _Session() as session:
-        for i, chunk in enumerate(chunks):
-            char_pos = i * (1500 - 200)
-            timestamp = _find_timestamp(segments, transcript, char_pos)
-            source_ref = f"{filename} → {_fmt_time(timestamp)}"
+        for item, new_ref, embedding in embedded:
+            content = item["content"]
 
-            items = await extract_requirements(chunk, source_ref)
-            for item in items:
-                embedding = await embed_text(item["content"])
-                req = Requirement(
-                    project_id=project_id,
-                    section=item.get("section", "open_questions"),
-                    content=item["content"],
-                    source_refs={"file": filename, "timestamp": _fmt_time(timestamp)},
-                    embedding=embedding,
-                    confidence=item.get("confidence", 0.0),
+            # Layer 1: exact-text dedup
+            exact_dup = (await session.execute(
+                select(Requirement).where(
+                    Requirement.project_id == project_id,
+                    Requirement.content == content,
                 )
-                session.add(req)
-                all_requirements.append({
-                    "section": item.get("section", "open_questions"),
-                    "content": item["content"],
-                    "source_refs": [{"file": filename, "timestamp": _fmt_time(timestamp)}],
-                    "confidence": item.get("confidence", 0.0),
-                })
+            )).scalars().first()
+            if exact_dup is not None:
+                logger.debug("chunk_and_extract: exact duplicate skipped: %.80s", content)
+                continue
+
+            # Layer 2: semantic similarity dedup via pgvector
+            near_dup = (await session.execute(
+                select(Requirement)
+                .where(
+                    Requirement.project_id == project_id,
+                    Requirement.embedding.cosine_distance(embedding) < 0.08,
+                )
+                .order_by(Requirement.embedding.cosine_distance(embedding))
+                .limit(1)
+            )).scalars().first()
+
+            if near_dup is not None:
+                existing_refs = near_dup.source_refs
+                near_dup.source_refs = (
+                    existing_refs + [new_ref]
+                    if isinstance(existing_refs, list)
+                    else [existing_refs, new_ref]
+                )
+                logger.debug(
+                    "chunk_and_extract: near-duplicate merged into req %s: %.80s",
+                    near_dup.id, content,
+                )
+                continue
+
+            req = Requirement(
+                project_id=project_id,
+                section=item.get("section", "open_questions"),
+                content=content,
+                source_refs=[new_ref],
+                embedding=embedding,
+                confidence=item.get("confidence", 0.0),
+            )
+            session.add(req)
+            all_requirements.append({
+                "section": item.get("section", "open_questions"),
+                "content": content,
+                "source_refs": [new_ref],
+                "confidence": item.get("confidence", 0.0),
+            })
         await session.commit()
 
+    logger.info(
+        "chunk_and_extract: %d unique requirements saved for project %s",
+        len(all_requirements), project_id,
+    )
     return {"requirements": all_requirements}
 
 
@@ -155,7 +296,11 @@ async def save_prd(state: PipelineState) -> dict:
     owner_name = ""
 
     async with _Session() as session:
-        session.add(PRDVersion(project_id=state["project_id"], content=prd_content))
+        max_ver = await session.scalar(
+            select(func.max(PRDVersion.version)).where(PRDVersion.project_id == state["project_id"])
+        )
+        next_version = (max_ver or 0) + 1
+        session.add(PRDVersion(project_id=state["project_id"], version=next_version, content=prd_content))
         sf = await session.get(SourceFile, state["source_file_id"])
         if sf is not None:
             sf.status = "complete"
